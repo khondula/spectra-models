@@ -6,43 +6,44 @@ process_flightline_refl <- function(my_flightline){
   my_flightline_datestring <- str_split(my_flightline, "_", simplify = TRUE)[1]
   my_flightline_date <- lubridate::as_date(my_flightline_datestring)
   my_fl <- str_split(my_flightline, "_", simplify = TRUE)[2]
-  
+  my_aop_yr <- lubridate::year(my_flightline_date)
   # read in L1 refl vals
-  spectra_df <- grep(my_flightline, spectra_files[my_spectra_fileIDs], value = TRUE) %>% vroom()
+  spectra_df <- grep(my_flightline, spectra_files[my_spectra_fileIDs], value = TRUE) %>% vroom::vroom()
   # find and read in L1 metadata
   my_meta_fileIDs <- str_detect(spectra_meta_files, glue::glue('{mysite}.*({my_aop_yr})'))
-  meta_df <- grep(my_flightline, spectra_meta_files[my_meta_fileIDs], value = TRUE) %>% vroom()
+  meta_df <- grep(my_flightline, spectra_meta_files[my_meta_fileIDs], value = TRUE) %>% vroom::vroom()
   # read in radiance metadata
   my_rad_fileIDs <- str_detect(rad_files, glue::glue('{mysite}.*({my_flightline_datestring})'))
   radmeta_df <- rad_files[my_rad_fileIDs] %>% vroom() %>% dplyr::filter(nmdLctn %in% my_loc)
   
   # identify metadata of interest
-  my_loc_check <- my_loc %in% meta_df$nmdLctn
+  my_loc_check <- any(my_loc %in% meta_df$nmdLctn)
   if(!my_loc_check){message(glue('{my_loc} not in {my_flightline}'))}
   if(my_loc_check){
-    
-  my_meta <- meta_df %>% dplyr::filter(nmdLctn %in% my_loc)
-  my_theta <- my_meta[['solar_zenith']]
-  my_clouds <- my_meta[['clouds']]
-  my_loc_type <- my_meta[['loctype']]
-  my_cellrow <- my_meta[['cellrow']] # need to align with radiance metadata
-  my_cellcol <- my_meta[['cellcol']] # need to align with radiance metadata
+    # should be the same for buoy c0 and c1
+    my_meta <- meta_df %>% dplyr::filter(nmdLctn %in% my_loc)
+    my_theta <- my_meta[['solar_zenith']] %>% unique()
+    my_clouds <- my_meta[['clouds']] %>% unique()
+    my_loc_type <- my_meta[['loctype']] %>% unique()
+    my_cellrow <- my_meta[['cellrow']] %>% unique() # need to align with radiance metadata
+    my_cellcol <- my_meta[['cellcol']] %>% unique() # need to align with radiance metadata
   
   # check for data
-  any_vals_check <- any(spectra_df[[my_loc_type]] != -9999)
+  any_vals_check <- any(spectra_df[[my_loc_type[1]]] != -9999)
   if(!any_vals_check){message(glue('No data for {my_flightline}'))}
   if(any_vals_check){
     my_rad_df <- radmeta_df %>% dplyr::filter(cellrow %in% my_cellrow & cellcol %in% my_cellcol)
-    my_gpstime_hrs <- my_rad_df[['gpstime_hrs']]
+    my_gpstime_hrs <- my_rad_df[['gpstime_hrs']] %>% unique()
     
     my_datetime_utc = lubridate::as_datetime(glue('{my_flightline_date} {hms::hms(hours = my_gpstime_hrs)}'))
     # select spectra from desired location and interpolate to 1 nm resolution with approx
-    my_spectra_df <- spectra_df %>% dplyr::select(my_loc_type, wl, band)
-    my_spectra_df2 <- approx(my_spectra_df$wl, my_spectra_df[[my_loc_type]], xout = my_wls) %>%
+    loc_in_spectra <- my_loc_type[my_loc_type %in% names(spectra_df)][1]
+    my_spectra_df <- spectra_df %>% dplyr::select(all_of(loc_in_spectra), wl, band)
+    my_spectra_df2 <- approx(my_spectra_df$wl, my_spectra_df[[loc_in_spectra]], xout = my_wls) %>%
       as.data.frame() %>% dplyr::rename(wl = x, rho_approx = y) %>%
       dplyr::mutate(rho_approx = rho_approx/10000)
     
-    wv_bands <- c(1260:1560, 1760:1960)
+    wv_bands <- c(1260:1560, 1760:1960) # water vapor bands to remove
     
     gg1 <- my_spectra_df %>%
       dplyr::mutate(wlint = round(wl)) %>%
@@ -56,11 +57,12 @@ process_flightline_refl <- function(my_flightline){
       coord_cartesian(ylim = c(0, NA)) +
       theme_bw() +
       ggtitle(glue('Interpolated reflectance to 1nm for 400-800 nm, wv bands masked,
-              {mysite} {my_aop_yr} at {my_loc}
-                     {my_flightline_date}, line {my_fl}, {my_clouds}'))
+              {mysite} {my_aop_yr} at {loc_in_spectra}
+              {my_flightline_date}, line {my_fl}, {my_clouds}'))
     
     my_theta_rad = (my_theta*pi)/180
     
+    # MODEL REMOTE SENSING REFLECTANCE AND UNDERWATER
     my_spectra_df3 <- my_spectra_df2 %>%
       dplyr::mutate(Rrs1 = rho_approx/pi) %>%
       dplyr::mutate(Rrs2 = rho_approx * (cos(my_theta_rad)/pi)) %>%
@@ -79,7 +81,7 @@ process_flightline_refl <- function(my_flightline){
       geom_line(aes(y = rrs2), col = 'purple', lty = 1) +
       theme_bw() +
       coord_cartesian(ylim = c(0, NA)) +
-      ggtitle(glue('{mysite} {my_aop_yr} at {my_loc}
+      ggtitle(glue('{mysite} {my_aop_yr} at {loc_in_spectra}
                      {my_flightline_date}, line {my_fl}, {my_clouds}
                      theta_z = {round(my_theta, 1)} deg
                      {my_datetime_utc} UTC'))
