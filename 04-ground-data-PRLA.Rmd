@@ -1,0 +1,2278 @@
+---
+title: "Ground based data"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+library(tidyverse)
+library(fs)
+library(glue)
+library(vroom)
+library(lubridate)
+library(zoo)
+library(tsibble)
+```
+
+* Updating the AOS and AIS data is handled separately in `neon-aqu-aos`. 
+* AOP flight times are determined from L1 radiance metadata. 
+
+# Summary for PRLA
+
+* Green flightlines from multiple dates in 2019 (July 26, 27) and 2020 (June 24, July 2)
+* In 2019, chl sampling from July 11 (2 weeks before), chemistry August 6 (11 days after), sensor data available
+* In 2020, chl sampling from June 15 (9 days before) and the following sample was very high. chemistry data not all available from closest sampling date (only TOC not DOC). sensor data available for first flight date but not later date (which had a  higher spectra with more pronounced peaks)
+* Also AOP data collected in 2016 and 2017 under yellow conditions but no ground-based data
+
+
+```{r siteid}
+mysite = 'PRLA'
+```
+
+```{r aoptimes, echo= FALSE, message=FALSE}
+rad_dir <- '~/Box/data/NEON-AOP/L1-radiance'
+rad_files <- fs::dir_ls(glue::glue('{rad_dir}/meta'))
+pref_locs <- readr::read_csv('~/Box/data/NEON/meta/preferred-locations.csv')
+my_loc = pref_locs %>% dplyr::filter(siteID %in% mysite) %>% pull(namedLocation)
+mysite_radfiles <- rad_files[str_detect(rad_files, mysite)]
+mysite_rad_df <- vroom::vroom(mysite_radfiles) %>% 
+  dplyr::filter(nmdLctn %in% my_loc, gpstime_hrs != '-9999') %>%
+  dplyr::mutate(datestring = str_sub(radfile, 1, 8)) %>%
+  dplyr::mutate(date = lubridate::as_date(datestring)) %>%
+  dplyr::mutate(datetime_utc = lubridate::as_datetime(glue('{date} {hms::hms(hours = gpstime_hrs)}')))
+
+mysite_dates <- mysite_rad_df$date %>% unique()
+mysite_datetimes <- mysite_rad_df$datetime_utc %>% unique()
+aop_datetimes_df <- data.frame(collectDateTime = mysite_datetimes)
+aop_dates_df <- data.frame(collectDate = mysite_dates)
+```
+
+# Chlorophyll
+
+## AOS Sampling
+
+* From processed chl a files on Box
+* reported in ug/L
+* seasonal sampling, 2 analytes
+
+```{r chlAOSdata, echo=FALSE, message=FALSE}
+phyto_dir2 <- '~/Box/data/NEON-processed/chl-a'
+chla_sitefiles <- glue::glue('{phyto_dir2}/{mysite}') %>% fs::dir_ls()
+chla_df <- vroom::vroom(chla_sitefiles) %>% 
+  dplyr::filter(namedLocation %in% my_loc) %>%
+  dplyr::filter(!is.na(analyteConcentration))
+chla_df_alllocs <- vroom::vroom(chla_sitefiles) %>% 
+  dplyr::filter(!is.na(analyteConcentration))
+# Sum up chl a and pheophytin, to show how proportion varies among all sampling
+chla_summary_df <- chla_df %>%
+  dplyr::select(collectDate, sampleID, replicate, analyte, analyteConcentration) %>%
+  group_by(sampleID) %>%
+  dplyr::summarize(chl_tot_ugL = sum(analyteConcentration))
+```
+
+```{r, echo = FALSE}
+chla_df %>%
+  ggplot(aes(x = collectDate, y = analyteConcentration)) +
+  geom_line() +
+  geom_vline(data = aop_dates_df, aes(xintercept = collectDate), col = 'purple') +
+  geom_point(aes(fill = sampleCondition), pch = 21, size = 3) +
+  facet_wrap(vars(analyte), ncol = 1, scales = "free") +
+  theme_bw() +
+  theme(legend.position = 'bottom') +
+  ggtitle(glue('chl a at {my_loc} with flight dates'))
+
+chla_df %>%
+  dplyr::select(collectDate, sampleID, replicate, analyte, analyteConcentration) %>% 
+  dplyr::left_join(chla_summary_df, by = 'sampleID') %>%
+  ggplot(aes(x = collectDate, y = analyteConcentration/chl_tot_ugL, fill = analyte)) +
+  geom_bar(stat = 'identity', col = 'black') +
+  geom_hline(aes(yintercept = 0.5), lty = 2) +
+  theme_bw() +
+  xlab(element_blank()) +
+  ggtitle(glue('chl proportions {my_loc}'))
+```
+
+See how many locations chl data is collected from
+
+```{r, echo = FALSE, message=FALSE}
+chla_df_alllocs %>%
+  ggplot(aes(x = collectDate, y = analyteConcentration)) +
+  geom_line(aes(col = analyte)) +
+  geom_vline(data = aop_dates_df, aes(xintercept = collectDate), col = 'purple') +
+  geom_point(aes(fill = analyte), pch = 21, size = 3) +
+  facet_wrap(vars(namedLocation)) +
+  # facet_wrap(vars(namedLocation), scales = "free_y") +
+  theme_bw() +
+  theme(legend.position = 'bottom') +
+  ggtitle(glue('chl a at {mysite} with flight dates'))
+```
+
+See how many locations chl data is collected from (variable Y axis)
+
+```{r, echo = FALSE, message=FALSE}
+chla_df_alllocs %>%
+  ggplot(aes(x = collectDate, y = analyteConcentration)) +
+  geom_line(aes(col = analyte)) +
+  geom_vline(data = aop_dates_df, aes(xintercept = collectDate), col = 'purple') +
+  geom_point(aes(fill = analyte), pch = 21, size = 3) +
+  facet_wrap(vars(namedLocation), scales = "free_y") +
+  theme_bw() +
+  theme(legend.position = 'bottom') +
+  ggtitle(glue('chl a at {mysite} with flight dates'))
+```
+
+**Availability of chlorophyll AOS data for each flight date**
+
+* Default threshold 1 = 30 days
+* Default threshold 2 = 60 days
+
+```{r matchchlAOS, echo = FALSE}
+
+source('R/match-aop-aos.R')
+
+chl_match_df <- match_aop_aos(mysite_dates, chla_df, 'collect_date')
+
+knitr::kable(chl_match_df$dates)
+knitr::kable(chl_match_df$matches)
+
+```
+
+* Make sure plant algae lab units are all micrograms per liter
+* Check sample conditions
+
+```{r checkunits, echo = FALSE}
+unique(chl_match_df$data$plantAlgaeLabUnits)
+unique(chl_match_df$data$sampleCondition)
+```
+
+### chl AOS x flightdates
+
+> These are the closest chl AOS values for each flight date
+
+```{r, echo = FALSE}
+chl_aosXaop <- chl_match_df$data %>% 
+  dplyr::select(aos_match, flightdate, days, analyte, analyteConcentration) %>%
+  tidyr::pivot_wider(names_from = analyte, values_from = analyteConcentration)
+knitr::kable(chl_aosXaop)
+```
+
+### Algal Community (TODO)
+
+> TO DO!!!!!
+
+* Relative abundance by division, class for diatom slides and soft algae count
+* Top 10 morphospecies for each method? 
+
+## AIS Sensor
+
+> The EXO total algae sensor is a dual‐channel fluorometer that uses a 470nm excitation beam that excites chlorophyll a and a second 590 nm excitation beam that excites the phyocyanin accessory pigment found in blue‐green algae (cyanobacteria). Chlorophyll concentration is a biogeochemically relavant parameter that is readily available by remote sensing and can be can serve as a proxy for phytoplankton biomass and light attenuation (Oestreich et al., 2016, Ganju et al., 2014, Jaud et al., 2012)
+
+Sensor chl data availability
+
+```{r, echo = FALSE, message=FALSE}
+wqts_dir <- '~/Box/data/NEON-processed/wq-timeseries'
+chlAIS_df <- glue::glue('{wqts_dir}/{mysite}') %>%
+  fs::dir_ls(glob = '*chlorophyll*') %>%
+  vroom::vroom()
+
+source('R/ais-with-buffer.R')
+
+avail_list <- mysite_datetimes %>% 
+  purrr::map(~ais_with_buffer(.x, ts_df = chlAIS_df, mycol = 'chlorophyll'))
+avail_df <- avail_list %>% map_df(~.x[['summary']])
+yes_avail_df <- avail_df %>% dplyr::filter(check_30day)
+knitr::kable(avail_df)
+```
+
+### 2019 chl AIS plots
+
+* Filtered to only 0 quality flags
+
+```{r, echo=FALSE, message = FALSE, warning = FALSE}
+
+###### 2019 #######
+avail_list[[8]]$data30 %>%
+    dplyr::filter(chlorophyllFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = chlorophyll)) +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_errorbar(aes(ymin = chlorophyll - chlorophyllExpUncert,
+                      ymax = chlorophyll + chlorophyllExpUncert)) +
+    # geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 1, fill = 'green', alpha = 0.1) +
+    theme_bw() +
+    ggtitle(glue('{mysite} AIS cholorophyll 30 days around {lubridate::as_date(avail_list[[8]]$summary$flightline_datetime)}'))
+
+avail_list[[8]]$data10 %>%
+    dplyr::filter(chlorophyllFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = chlorophyll)) +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_errorbar(aes(ymin = chlorophyll - chlorophyllExpUncert,
+                      ymax = chlorophyll + chlorophyllExpUncert)) +
+    # geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 1, fill = 'green', alpha = 0.1) +
+    theme_bw() +
+    ggtitle(glue('{mysite} AIS cholorophyll 10 days around {lubridate::as_date(avail_list[[8]]$summary$flightline_datetime)}'))
+
+avail_list[[8]]$data1 %>%
+    dplyr::filter(chlorophyllFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = chlorophyll)) +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_errorbar(aes(ymin = chlorophyll - chlorophyllExpUncert,
+                      ymax = chlorophyll + chlorophyllExpUncert)) +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'green') +
+    theme_bw() +
+    ggtitle(glue('{mysite} AIS cholorophyll 1 day around {lubridate::as_date(avail_list[[8]]$summary$flightline_datetime)}'))
+
+avail_list[[8]]$dataHr %>%
+    dplyr::filter(chlorophyllFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = chlorophyll)) +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_smooth() +
+    geom_errorbar(aes(ymin = chlorophyll - chlorophyllExpUncert,
+                      ymax = chlorophyll + chlorophyllExpUncert)) +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'green') +
+    theme_bw() +
+    ggtitle(glue('{mysite} AIS cholorophyll 12 hours around {avail_list[[8]]$summary$flightline_datetime} UTC'))
+
+avail_list[[11]]$data1 %>%
+    dplyr::filter(chlorophyllFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = chlorophyll)) +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_errorbar(aes(ymin = chlorophyll - chlorophyllExpUncert,
+                      ymax = chlorophyll + chlorophyllExpUncert)) +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'green') +
+    theme_bw() +
+    ggtitle(glue('{mysite} AIS cholorophyll 1 day around {lubridate::as_date(avail_list[[11]]$summary$flightline_datetime)}'))
+
+avail_list[[11]]$dataHr %>%
+    dplyr::filter(chlorophyllFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = chlorophyll)) +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_smooth() +
+    geom_errorbar(aes(ymin = chlorophyll - chlorophyllExpUncert,
+                      ymax = chlorophyll + chlorophyllExpUncert)) +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'green') +
+    theme_bw() +
+    ggtitle(glue('{mysite} AIS cholorophyll 12 hours around {avail_list[[11]]$summary$flightline_datetime} UTC'))
+
+avail_list[[12]]$data1 %>%
+    dplyr::filter(chlorophyllFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = chlorophyll)) +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_errorbar(aes(ymin = chlorophyll - chlorophyllExpUncert,
+                      ymax = chlorophyll + chlorophyllExpUncert)) +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'green') +
+    theme_bw() +
+    ggtitle(glue('{mysite} AIS cholorophyll 1 day around {lubridate::as_date(avail_list[[12]]$summary$flightline_datetime)}'))
+
+avail_list[[12]]$dataHr %>%
+    dplyr::filter(chlorophyllFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = chlorophyll)) +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_smooth() +
+    geom_errorbar(aes(ymin = chlorophyll - chlorophyllExpUncert,
+                      ymax = chlorophyll + chlorophyllExpUncert)) +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'green') +
+    theme_bw() +
+    ggtitle(glue('{mysite} AIS cholorophyll 12 hours around {avail_list[[12]]$summary$flightline_datetime} UTC'))
+
+```
+
+### 2020 chl AIS plots
+
+* No QF filters on these plots
+* Is QF because of lack of calibration? 
+
+```{r, echo=FALSE, message = FALSE, warning = FALSE}
+###### 2020 #######
+
+avail_list[[13]]$data30 %>%
+    # dplyr::filter(chlorophyllFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = chlorophyll)) +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_errorbar(aes(ymin = chlorophyll - chlorophyllExpUncert,
+                      ymax = chlorophyll + chlorophyllExpUncert)) +
+    # geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 1, fill = 'green', alpha = 0.1) +
+    theme_bw() +
+  coord_cartesian(ylim = c(NA, 25)) +
+    ggtitle(glue('{mysite} AIS cholorophyll 30 days around {lubridate::as_date(avail_list[[13]]$summary$flightline_datetime)}'))
+
+avail_list[[13]]$data10 %>%
+    # dplyr::filter(chlorophyllFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = chlorophyll)) +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_errorbar(aes(ymin = chlorophyll - chlorophyllExpUncert,
+                      ymax = chlorophyll + chlorophyllExpUncert)) +
+    # geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 1, fill = 'green', alpha = 0.1) +
+    theme_bw() +
+    coord_cartesian(ylim = c(NA, 25)) +
+    ggtitle(glue('{mysite} AIS cholorophyll 10 days around {lubridate::as_date(avail_list[[13]]$summary$flightline_datetime)}'))
+
+avail_list[[13]]$data1 %>%
+    # dplyr::filter(chlorophyllFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = chlorophyll)) +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_errorbar(aes(ymin = chlorophyll - chlorophyllExpUncert,
+                      ymax = chlorophyll + chlorophyllExpUncert)) +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'green') +
+    theme_bw() +
+    coord_cartesian(ylim = c(NA, 25)) +
+    ggtitle(glue('{mysite} AIS cholorophyll 1 day around {lubridate::as_date(avail_list[[13]]$summary$flightline_datetime)}'))
+
+avail_list[[16]]$data1 %>%
+    # dplyr::filter(chlorophyllFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = chlorophyll)) +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    # geom_smooth() +
+    geom_errorbar(aes(ymin = chlorophyll - chlorophyllExpUncert,
+                      ymax = chlorophyll + chlorophyllExpUncert)) +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'green') +
+    theme_bw() +
+    coord_cartesian(ylim = c(NA, 25)) +
+    ggtitle(glue('{mysite} AIS cholorophyll 1 day around {avail_list[[16]]$summary$flightline_datetime} UTC'))
+
+avail_list[[17]]$data10 %>%
+    # dplyr::filter(chlorophyllFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = chlorophyll)) +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_errorbar(aes(ymin = chlorophyll - chlorophyllExpUncert,
+                      ymax = chlorophyll + chlorophyllExpUncert)) +
+    # geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 1, fill = 'green', alpha = 0.1) +
+    theme_bw() +
+    coord_cartesian(ylim = c(NA, 25)) +
+    ggtitle(glue('{mysite} AIS cholorophyll 10 days around {lubridate::as_date(avail_list[[17]]$summary$flightline_datetime)}'))
+
+
+
+```
+
+### 2019 Chl avg
+
+* Smooth the chl time series using a rolling mean with `zoo::rollapply`. 
+* First convert to a regular 5 minute time series using `tsibble`
+
+```{r, echo = FALSE, warning=FALSE}
+
+df <- avail_list[[8]]$data10 %>%dplyr::filter(chlorophyllFinalQF == 0) 
+
+source('R/calc-rolling-avgs.R')
+
+chl_list <- calculate_running_avgs_chl(df)
+chl_df_tsibble <- chl_list$df_tsibble
+chl_df_ma <- chl_list$chl_df_ma
+
+rm1 <- chl_df_tsibble %>%
+  ggplot(aes(x = datetime, y = chl5min)) +
+  xlab(element_blank()) +
+  geom_point(pch = 21, fill = 'green', alpha = 0.25, size = 2) +
+  geom_line(data = chl_df_ma, aes(y = chl_ma03), col = 'red', lwd = 1) +
+  theme_bw() +
+  geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+  xlim(c(avail_list[[8]]$summary$flightline_datetime - ddays(5), 
+         avail_list[[8]]$summary$flightline_datetime + ddays(5))) +
+  coord_cartesian(ylim = c(NA, 40)) +
+  ggtitle(glue('Rolling mean 3 hours'))
+rm2 <- chl_df_tsibble %>%
+  ggplot(aes(x = datetime, y = chl5min)) +
+  xlab(element_blank()) +
+  geom_point(pch = 21, fill = 'green', alpha = 0.25, size = 2) +
+  geom_line(data = chl_df_ma, aes(y = chl_ma04), col = 'blue', lwd = 1) +
+  theme_bw() +
+     geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+  xlim(c(avail_list[[8]]$summary$flightline_datetime - ddays(5), 
+         avail_list[[8]]$summary$flightline_datetime + ddays(5))) +
+  coord_cartesian(ylim = c(NA, 40)) +
+  ggtitle(glue('Rolling mean 4 hours'))
+rm3 <- chl_df_tsibble %>%
+  ggplot(aes(x = datetime, y = chl5min)) +
+  xlab(element_blank()) +
+  geom_point(pch = 21, fill = 'green', alpha = 0.25, size = 2) +
+  geom_line(data = chl_df_ma, aes(y = chl_ma12), col = 'black', lwd = 1) +
+  theme_bw() +
+     geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+  xlim(c(avail_list[[8]]$summary$flightline_datetime - ddays(5), 
+         avail_list[[8]]$summary$flightline_datetime + ddays(5))) +
+  coord_cartesian(ylim = c(NA, 40)) +
+  ggtitle(glue('Rolling mean 12 hours'))
+
+cowplot::plot_grid(rm1, rm2, rm3, ncol = 1)
+```
+
+Get the moving average value closet to flight time. 
+
+* 5min is the original data from that row
+* ma01 = 1 hour window, ma03 = 3 hour window, and so on
+* chl_ma04u is mean, the others are all mean
+
+```{r, echo = FALSE}
+source('R/match-aop-sensor.R')
+
+df2019 <- match_aop_sensor(aop_datetimes_df, chl_df_ma)
+
+knitr::kable(df2019)
+```
+
+### 2020 Chl avg
+
+* Smooth the chl time series using a rolling mean with `zoo::rollapply`. 
+* First convert to a regular 5 minute time series using `tsibble`
+* Using median for 2020 because of QA issues? (or could remove outliers before calculating running median)
+
+```{r, echo = FALSE, warning=FALSE}
+
+df <- avail_list[[13]]$data10
+chl_list <- calculate_running_avgs_chl(df)
+chl_df_tsibble <- chl_list$df_tsibble
+chl_df_ma <- chl_list$chl_df_ma
+  
+rm1 <- chl_df_tsibble %>%
+    ggplot(aes(x = datetime, y = chl5min)) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, fill = 'green', alpha = 0.25, size = 2) +
+    geom_line(data = chl_df_ma, aes(y = chl_ma03), col = 'red', lwd = 1) +
+    theme_bw() +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    xlim(c(avail_list[[13]]$summary$flightline_datetime - ddays(5), 
+           avail_list[[13]]$summary$flightline_datetime + ddays(5))) +
+    coord_cartesian(ylim = c(NA, 40)) +
+    ggtitle(glue('Rolling mean 3 hours'))
+  rm2 <- chl_df_tsibble %>%
+    ggplot(aes(x = datetime, y = chl5min)) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, fill = 'green', alpha = 0.25, size = 2) +
+    geom_line(data = chl_df_ma, aes(y = chl_ma04), col = 'blue', lwd = 1) +
+    geom_line(data = chl_df_ma, aes(y = chl_ma04u), col = 'blue', lty = 2) +
+    theme_bw() +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    xlim(c(avail_list[[13]]$summary$flightline_datetime - ddays(5), 
+           avail_list[[13]]$summary$flightline_datetime + ddays(5))) +
+    coord_cartesian(ylim = c(NA, 40)) +
+    ggtitle(glue('Rolling mean 4 hours'))
+  rm3 <- chl_df_tsibble %>%
+    ggplot(aes(x = datetime, y = chl5min)) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, fill = 'green', alpha = 0.25, size = 2) +
+    geom_line(data = chl_df_ma, aes(y = chl_ma12), col = 'black', lwd = 1) +
+    theme_bw() +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    xlim(c(avail_list[[13]]$summary$flightline_datetime - ddays(5), 
+           avail_list[[13]]$summary$flightline_datetime + ddays(5))) +
+    coord_cartesian(ylim = c(NA, 40)) +
+    ggtitle(glue('Rolling mean 12 hours'))
+  
+cowplot::plot_grid(rm1, rm2, rm3, ncol = 1)
+```
+
+Get the moving average value closet to flight time
+
+```{r, echo = FALSE}
+df2020 <- match_aop_sensor(aop_datetimes_df, chl_df_ma)
+
+knitr::kable(df2020)
+```
+
+## Chl AIS vs AOS
+
+* use `chla_df` date and times with the aop/ais matching function to determine which sampling dates have sensor data from same day around time of sampling. 
+
+already sort of done for suna data... follow this pattern
+
+* Get chl sensor data from all AOS sampling dates (use ais with buffer 2 fucntion?)
+* show what is available
+* calculate rolling averages of chl time series
+* get rolling average values for time closest to sampling using which min on difftime
+* little overlap because of seasonal removal of buoys
+
+```{r, echo = FALSE, warning=FALSE}
+chla_aos_df <- chla_df %>% 
+  dplyr::select(sampleID, collectDate, time_hms, analyte, analyteConcentration, collect_date) %>%
+  tidyr::pivot_wider(names_from = analyte, values_from = analyteConcentration) %>%
+  dplyr::rename(chla = `chlorophyll a`) %>%
+  dplyr::mutate(chl_tot = chla + pheophytin) %>%
+  dplyr::mutate(collect_datetime = lubridate::as_datetime(glue('{collect_date} {time_hms}')))
+
+chlAOS_datetimes <- chla_aos_df$collect_datetime %>% unique()
+chlAOS_datetimes_df <- data.frame(chl_datetime = chlAOS_datetimes)
+
+avail_list <- chlAOS_datetimes %>% 
+  purrr::map(~ais_with_buffer2(.x, ts_df = chlAIS_df, mycol = 'chlorophyll'))
+avail_df <- avail_list %>% map_df(~.x[['summary']])
+
+yes_avail_df <- avail_df %>% dplyr::filter(check_3day)
+knitr::kable(avail_df)
+knitr::kable(yes_avail_df)
+
+avail_df %>%
+  ggplot(aes(x = aos_datetime, y = check_1day)) +
+  geom_point(aes(fill = check_6hr), pch = 21, size = 3) +
+  theme_bw() +
+  ggtitle(glue('{mysite} Chl sensor data at buoy during AOS sampling days'))
+
+# create 3 day windows around each of the aos sampling days
+# for subsetting the sensor time series 
+my_ais_intervals <- yes_avail_df$aos_datetime %>%
+  purrr::map(~lubridate::interval(.x - ddays(3), .x + ddays(3))) %>%
+  purrr::map(~dplyr::filter(chlAIS_df, startDateTime %within% .x[[1]])) %>%
+  purrr::map(~calculate_running_avgs_chl(.x))
+
+names(my_ais_intervals) <- as_date(yes_avail_df$aos_datetime)
+
+ais_intervals_df <- my_ais_intervals %>% 
+  purrr::map(~.x[['df_tsibble']]) %>% 
+  purrr::map(~as_tibble(.x)) %>%
+  bind_rows(.id = 'aos_date')
+aisRM_intervals_df <- my_ais_intervals %>% 
+  purrr::map(~.x[['chl_df_ma']]) %>% 
+  purrr::map(~as_tibble(.x)) %>%
+  bind_rows(.id = 'aos_date')
+
+ais_intervals_df %>%
+  ggplot(aes(x = datetime, y = chl5min)) +
+  geom_point(pch = 21, col = 'green', fill = 'green', alpha = 0.5) +
+  geom_vline(data = chlAOS_datetimes_df, aes(xintercept = chl_datetime), col = 'blue', lty = 2) +
+  geom_line(data = aisRM_intervals_df, aes(y = chl_ma04)) +
+  geom_line(data = aisRM_intervals_df, aes(y = chl_ma12), col = 'purple') +
+  facet_wrap(vars(aos_date), scales = 'free_x') +
+  coord_cartesian(ylim = c(0, 20)) +
+  theme_bw() +
+  ggtitle(glue('{mysite} chl sensor 4 and 12 hour rolling mean around AOS sampling dates'))
+
+chla_aos_df %>%
+  dplyr::select(collect_date, pheophytin, chla, chl_tot) %>%
+  knitr::kable()
+```
+
+Compare AOS and AIS
+
+```{r, echo = FALSE, message = FALSE}
+source('R/match-aos-sensor.R')
+chl_aosXais <- match_aos_sensor(aos_datetimes_df = chla_aos_df, df_movavg = aisRM_intervals_df)
+
+chl1 <- chl_aosXais %>%
+  ggplot(aes(x = chl_tot, y = chl_ma04)) +
+  geom_smooth(method = 'lm') +
+  geom_point(aes(fill = as.factor(collect_date)), size = 3, pch = 21) +
+  theme_bw() +
+  coord_cartesian(ylim = c(0, NA)) +
+  ggtitle(glue('{mysite} chl_tot AOS vs sensor'))
+chl2 <- chl_aosXais %>%
+  ggplot(aes(x = chla, y = chl_ma04)) +
+  geom_smooth(method = 'lm') +
+  geom_point(aes(fill = as.factor(collect_date)), size = 3, pch = 21) +
+  theme_bw() +
+    coord_cartesian(ylim = c(0, NA)) +
+  ggtitle(glue('{mysite} chl A AOS vs sensor'))
+
+cowplot::plot_grid(chl1, chl2)
+```
+
+# DOM
+
+## AOS Sampling
+
+* From processed Surface water chemistry files on Box
+
+EPA Method [description](https://cfpub.epa.gov/si/si_public_record_report.cfm?Lab=NERL&dirEntryId=103917): 
+
+* The UVA procedure requires that the sample be passed through a 0.45 um filter and transferred to quartz cell. It is then placed in a spectrophotometer to measure the UV absorbance at 254 nm and reported in cm -1.
+
+* The SUVA procedure requires both the DOC and UVA measurement. The SUVA is then calculated by dividing the UV absorbance of the sample (in cm -1) by the DOC of the sample (in mg/L) and then multiplying by 100 cm/M. SUVA is reported in units of L/mg-M. The formula for the SUVA may be found in Section 12.2.
+
+```{r, echo = FALSE, message=FALSE}
+cdom_analytes <- c('UV Absorbance (280 nm)',
+                  'UV Absorbance (250 nm)',
+                  'UV Absorbance (380 nm)',
+                  'UV Absorbance (254 nm)',
+                  'DOC', 'TOC', 'Fe')
+chem_box_dir = '~/Box/data/NEON-processed/swchem'
+swchem_site_df <- glue::glue('{chem_box_dir}/{mysite}.tsv') %>% 
+  vroom::vroom() %>%
+  dplyr::filter(namedLocation %in% my_loc, !is.na(analyteConcentration)) %>%
+  dplyr::select(domainID, siteID, namedLocation, sampleID, collectDate, 
+                analyte, analyteConcentration, analyteUnits, sampleCondition) %>%
+  dplyr::mutate(collect_date = lubridate::as_date(collectDate)) %>%
+  dplyr::filter(analyte %in% cdom_analytes)
+```
+
+```{r, echo  = FALSE, message=FALSE}
+swchem_site_df %>%
+  ggplot(aes(x = collectDate, y = analyteConcentration)) +
+  geom_line() +
+  geom_vline(data = aop_dates_df, aes(xintercept = collectDate), col = 'purple') +
+  geom_point(aes(fill = sampleCondition), pch = 21, size = 3) +
+  facet_wrap(vars(analyte), scales = "free_y") +
+  theme_bw() +
+  theme(legend.position = 'bottom') +
+  ggtitle(glue('Surface water chem at {my_loc} with flight dates'))
+```
+
+> Ignoring data before 2016
+
+```{r, echo = FALSE, message=FALSE}
+swchem_site_df %>%
+  dplyr::filter(lubridate::year(collectDate) > 2016) %>%
+  ggplot(aes(x = collect_date, y = analyteConcentration)) +
+  geom_line() +
+  geom_vline(data = aop_dates_df, aes(xintercept = collectDate), col = 'purple') +
+  geom_point(aes(fill = sampleCondition), pch = 21, size = 3) +
+  facet_wrap(vars(analyte), scales = "free_y") +
+  ylim(c(0, NA)) +
+  theme_bw() +
+  theme(legend.position = 'bottom') +
+  ggtitle(glue('Surface water chem at {my_loc} since 2016 with flight dates'))
+```
+
+> Correct older UV Absorbance wavelengths from 250 to 254, assuming all 250 nm should be 254. 
+
+```{r}
+swchem_site_df <- swchem_site_df %>%
+  dplyr::mutate(analyte = dplyr::case_when(analyte == 'UV Absorbance (250 nm)' ~
+                                             'UV Absorbance (254 nm)', TRUE ~ analyte))
+```
+
+```{r, echo = FALSE, message=FALSE}
+swchem_site_df %>%
+  dplyr::filter(lubridate::year(collectDate) > 2016) %>%
+  ggplot(aes(x = collect_date, y = analyteConcentration)) +
+  geom_line() +
+  geom_vline(data = aop_dates_df, aes(xintercept = collectDate), col = 'purple') +
+  geom_point(aes(fill = sampleCondition), pch = 21, size = 3) +
+  facet_wrap(vars(analyte), scales = "free_y") +
+  ylim(c(0, NA)) +
+  theme_bw() +
+  theme(legend.position = 'bottom') +
+  ggtitle(glue('Corrected Surface water chem at {my_loc} since 2016 with flight dates'))
+
+```
+
+> How much does SUVA 254/280 ratio change?
+
+```{r, echo = FALSE}
+suva_summary_df <- swchem_site_df %>%
+    dplyr::filter(lubridate::year(collectDate) > 2016) %>%
+    dplyr::filter(analyte %in% c('UV Absorbance (254 nm)', 'UV Absorbance (280 nm)')) %>%
+    dplyr::select(collect_date, sampleID, analyte, analyteConcentration) %>%
+    group_by(sampleID) %>%
+    tidyr::pivot_wider(names_from = analyte, values_from = analyteConcentration) %>%
+    dplyr::rename(suva280 = `UV Absorbance (280 nm)`, suva254 = `UV Absorbance (254 nm)`) %>%
+    dplyr::mutate(suva254_280 = suva254/suva280)
+
+suva_summary_xdate <- suva_summary_df %>% group_by(collect_date) %>%
+  dplyr::summarise(avg_suva_ratio = mean(suva254_280))
+
+suva_summary_df %>%
+  ggplot(aes(x = collect_date, y = suva254_280)) +
+  geom_line(data = suva_summary_xdate, aes(y = avg_suva_ratio)) +
+  geom_vline(data = aop_dates_df, aes(xintercept = collectDate), col = 'purple') +
+  geom_point(pch = 21, size = 3, fill = 'blue', alpha = 0.5) +
+  theme_bw() +
+  ylim(c(0, NA)) +
+  xlab(element_blank()) +
+  ggtitle(glue('SUVA ratio over time at {my_loc}'))
+```
+
+> How much does organic carbon dissolved proportion change?
+
+Adjusts sample IDs in a new column to group together raw and filtered, while keeping track of duplicates
+
+```{r, echo = FALSE, message = FALSE}
+
+swchem_site_df2 <- swchem_site_df %>%
+  dplyr::mutate(sampleID2 = str_replace(sampleID, "FIL", "RAW"))
+
+oc_summary_df <- swchem_site_df2 %>%
+    dplyr::filter(lubridate::year(collectDate) > 2016) %>%
+    dplyr::filter(analyte %in% c('DOC', 'TOC')) %>%
+    dplyr::select(collect_date, sampleID2, analyte, analyteConcentration) %>%
+    tidyr::pivot_wider(names_from = analyte, values_from = analyteConcentration) %>%
+    dplyr::mutate(dissolved_prop = DOC/TOC)
+
+toc_summary_xdate <- oc_summary_df %>% group_by(collect_date) %>%
+  dplyr::summarise(avg_dissolved_prop = mean(dissolved_prop))
+
+oc_summary_df %>%
+  ggplot(aes(x = collect_date, y = dissolved_prop)) +
+  geom_line(data = toc_summary_xdate, aes(y = avg_dissolved_prop)) +
+  geom_vline(data = aop_dates_df, aes(xintercept = collectDate), col = 'purple') +
+  geom_hline(aes(yintercept = 1), lty = 2) +
+  geom_hline(aes(yintercept = 0.90), lty = 2) +
+  geom_point(pch = 21, size = 3, fill = 'red', alpha = 0.5) +
+  theme_bw() +
+  ylim(c(0, NA)) +
+  xlab(element_blank()) +
+  ylab('DOC/TOC') +
+  ggtitle(glue('Dissolved C proportion ratio over time at {my_loc}'))
+```
+
+**Match DOM AOS and AOP data**
+
+Need to do this separately for each analyte because they arent always all reported. 
+
+```{r, echo = FALSE}
+source('R/match-aop-aos.R')
+
+
+swchem_match_list <- swchem_site_df %>% 
+  group_by(analyte) %>% group_split() %>%
+  purrr::map(~match_aop_aos(aop_dates = mysite_dates, aos_df = .x, aos_date_col = 'collect_date'))
+
+names(swchem_match_list) <- swchem_match_list %>% purrr::map_chr(~.x[['data']][['analyte']][1])
+```
+
+### DOC x flightdates
+
+> These are the closest DOC values (mg/L) for each flight date
+
+* A list of values means there are duplicate samples (multiple sampleIDs) from same date.
+
+```{r, echo = FALSE}
+knitr::kable(swchem_match_list[['DOC']]$dates)
+knitr::kable(swchem_match_list[['DOC']]$matches)
+swchem_match_list[['DOC']]$data %>% 
+  dplyr::select(aos_match, flightdate, days, analyte, analyteConcentration) %>%
+  tidyr::pivot_wider(names_from = analyte, values_from = analyteConcentration, values_fn = list) %>%
+  knitr::kable()
+```
+
+### UV abs x flightdates
+
+> These are the closest UV abs values (per 1 cm) for each flight date
+
+* A list of values means there are duplicate samples (multiple sampleIDs) from same date.
+
+```{r, echo = FALSE}
+knitr::kable(swchem_match_list[['UV Absorbance (254 nm)']]$dates)
+knitr::kable(swchem_match_list[['UV Absorbance (254 nm)']]$matches)
+swchem_match_list[['UV Absorbance (254 nm)']]$data %>% 
+  dplyr::select(aos_match, flightdate, days, analyte, analyteConcentration) %>%
+  tidyr::pivot_wider(names_from = analyte, values_from = analyteConcentration, values_fn = list) %>%
+  knitr::kable()
+```
+
+```{r, echo = FALSE}
+knitr::kable(swchem_match_list[['UV Absorbance (280 nm)']]$dates)
+knitr::kable(swchem_match_list[['UV Absorbance (280 nm)']]$matches)
+swchem_match_list[['UV Absorbance (280 nm)']]$data %>% 
+  dplyr::select(aos_match, flightdate, days, analyte, analyteConcentration) %>%
+  tidyr::pivot_wider(names_from = analyte, values_from = analyteConcentration, values_fn = list) %>%
+  knitr::kable()
+```
+
+### TOC x flightdates
+
+* TOC is reported in milligramsPerLiter
+
+```{r, echo = FALSE}
+knitr::kable(swchem_match_list[['TOC']]$dates)
+knitr::kable(swchem_match_list[['TOC']]$matches)
+swchem_match_list[['TOC']]$data %>% 
+  dplyr::select(aos_match, flightdate, days, analyte, analyteConcentration) %>%
+  tidyr::pivot_wider(names_from = analyte, values_from = analyteConcentration, values_fn = list) %>%
+  knitr::kable()
+```
+
+### Fe x flightdates
+
+* Fe is reported in milligramsPerLiter
+
+```{r, echo = FALSE}
+knitr::kable(swchem_match_list[['Fe']]$dates)
+knitr::kable(swchem_match_list[['Fe']]$matches)
+swchem_match_list[['Fe']]$data %>% 
+  dplyr::select(aos_match, flightdate, days, analyte, analyteConcentration) %>%
+  tidyr::pivot_wider(names_from = analyte, values_from = analyteConcentration, values_fn = list) %>%
+  knitr::kable()
+```
+
+## AIS Sensor
+
+> The EXO fDOM sensor is a fluorometer with a single excitation/emission pair (365nm/480nm) used to detect the fluorescent fraction of the chromophoric DOM when exposed to near‐UV light. Because of the impacts of temperature and water column absorbance (from a combination of dissolved and particulate compounds) on these readings corrections must be applied to the calibrated data.
+
+* availability of processed fDOM time series within different time windows
+
+```{r, echo = FALSE, message = FALSE}
+wqts_dir <- '~/Box/data/NEON-processed/wq-timeseries'
+fdomAIS_df <- glue::glue('{wqts_dir}/{mysite}') %>%
+  fs::dir_ls(glob = '*fDOM*') %>%
+  vroom::vroom()
+
+source('R/ais-with-buffer.R')
+avail_list <- mysite_datetimes %>% purrr::map(~ais_with_buffer(.x, ts_df = fdomAIS_df, mycol = 'fDOM'))
+avail_df <- avail_list %>% map_df(~.x[['summary']])
+yes_avail_df <- avail_df %>% dplyr::filter(check_30day)
+knitr::kable(avail_df)
+```
+
+### 2019 fDOM plots
+
+
+```{r fdomplots2019, echo=FALSE}
+
+###### 2019 #######
+avail_list[[8]]$data30 %>%
+    # dplyr::filter(fDOMFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = fDOM)) +
+    geom_errorbar(aes(ymin = fDOM - fDOMExpUncert,
+                      ymax = fDOM + fDOMExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    # geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 1, fill = 'blue', alpha = 0.1) +
+    theme_bw() +
+    coord_cartesian(ylim = c(50, 150)) +
+    ggtitle(glue('{mysite} AIS fDOM 30 days around {lubridate::as_date(avail_list[[8]]$summary$flightline_datetime)}'))
+
+avail_list[[8]]$data10 %>%
+    # dplyr::filter(fDOMFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = fDOM)) +
+    geom_errorbar(aes(ymin = fDOM - fDOMExpUncert,
+                      ymax = fDOM + fDOMExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    # geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 1, fill = 'blue', alpha = 0.1) +
+    theme_bw() +
+    coord_cartesian(ylim = c(50, 150)) +
+    ggtitle(glue('{mysite} AIS fDOM 10 days around {lubridate::as_date(avail_list[[8]]$summary$flightline_datetime)}'))
+
+avail_list[[8]]$data1 %>%
+    # dplyr::filter(fDOMFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = fDOM)) +
+     geom_errorbar(aes(ymin = fDOM - fDOMExpUncert,
+                      ymax = fDOM + fDOMExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'blue') +
+    theme_bw() +
+    coord_cartesian(ylim = c(50, 150)) +
+    ggtitle(glue('{mysite} AIS fDOM 1 day around {lubridate::as_date(avail_list[[8]]$summary$flightline_datetime)}'))
+
+avail_list[[8]]$dataHr %>%
+    # dplyr::filter(fDOMFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = fDOM)) +
+    geom_smooth() +
+   geom_errorbar(aes(ymin = fDOM - fDOMExpUncert,
+                      ymax = fDOM + fDOMExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'blue', alpha = 0.7) +
+    theme_bw() +
+    coord_cartesian(ylim = c(50, 150)) +
+    ggtitle(glue('{mysite} AIS fDOM 12 hours around {avail_list[[8]]$summary$flightline_datetime} UTC'))
+
+avail_list[[11]]$data1 %>%
+    # dplyr::filter(fDOMFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = fDOM)) +
+    geom_errorbar(aes(ymin = fDOM - fDOMExpUncert,
+                      ymax = fDOM + fDOMExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'blue', alpha = 0.7) +
+    theme_bw() +
+    coord_cartesian(ylim = c(75, 125)) +
+    ggtitle(glue('{mysite} AIS fDOM 1 day around {lubridate::as_date(avail_list[[11]]$summary$flightline_datetime)}'))
+
+avail_list[[11]]$dataHr %>%
+    # dplyr::filter(fDOMFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = fDOM)) +
+   geom_errorbar(aes(ymin = fDOM - fDOMExpUncert,
+                      ymax = fDOM + fDOMExpUncert), col = 'gray') +
+    geom_smooth() +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'blue') +
+    theme_bw() +
+    coord_cartesian(ylim = c(75, 125)) +
+    ggtitle(glue('{mysite} AIS fDOM 12 hours around {avail_list[[11]]$summary$flightline_datetime} UTC'))
+
+avail_list[[12]]$data1 %>%
+    # dplyr::filter(fDOMFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = fDOM)) +
+    geom_errorbar(aes(ymin = fDOM - fDOMExpUncert,
+                      ymax = fDOM + fDOMExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'blue', alpha = 0.7) +
+    theme_bw() +
+    coord_cartesian(ylim = c(75, 125)) +
+    ggtitle(glue('{mysite} AIS fDOM 1 day around {lubridate::as_date(avail_list[[12]]$summary$flightline_datetime)}'))
+
+avail_list[[12]]$dataHr %>%
+    # dplyr::filter(fDOMFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = fDOM)) +
+    geom_smooth() +
+    geom_errorbar(aes(ymin = fDOM - fDOMExpUncert,
+                      ymax = fDOM + fDOMExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'blue', alpha = 0.7) +
+    theme_bw() +
+        coord_cartesian(ylim = c(75, 125)) +
+    ggtitle(glue('{mysite} AIS fDOM 12 hours around {avail_list[[12]]$summary$flightline_datetime} UTC'))
+
+```
+
+### 2020 fDOM plots
+
+* Not filtered on QFs
+* QF because of lack of calibration? 
+
+```{r fdomplots2020, echo = FALSE}
+###### 2020 #######
+
+avail_list[[13]]$data30 %>%
+    # dplyr::filter(fDOMFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = fDOM)) +
+    geom_errorbar(aes(ymin = fDOM - fDOMExpUncert,
+                      ymax = fDOM + fDOMExpUncert), col = 'gray') +
+    # geom_line() +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 1, fill = 'blue', alpha = 0.1) +
+    theme_bw() +
+    coord_cartesian(ylim = c(50, 75)) +
+    ggtitle(glue('{mysite} AIS fDOM 30 days around {lubridate::as_date(avail_list[[13]]$summary$flightline_datetime)}'))
+
+avail_list[[13]]$data10 %>%
+    # dplyr::filter(fDOMFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = fDOM)) +
+    geom_errorbar(aes(ymin = fDOM - fDOMExpUncert,
+                      ymax = fDOM + fDOMExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    # geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 1, fill = 'blue', alpha = 0.1) +
+    theme_bw() +
+    coord_cartesian(ylim = c(50, 75)) +
+    ggtitle(glue('{mysite} AIS fDOM 10 days around {lubridate::as_date(avail_list[[13]]$summary$flightline_datetime)}'))
+
+avail_list[[13]]$data1 %>%
+    # dplyr::filter(fDOMFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = fDOM)) +
+    geom_errorbar(aes(ymin = fDOM - fDOMExpUncert,
+                      ymax = fDOM + fDOMExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'blue', alpha = 0.7) +
+    theme_bw() +
+    coord_cartesian(ylim = c(50, 75)) +
+    ggtitle(glue('{mysite} AIS fDOM 1 day around {lubridate::as_date(avail_list[[13]]$summary$flightline_datetime)}'))
+
+avail_list[[16]]$data1 %>%
+    # dplyr::filter(fDOMFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = fDOM)) +
+    # geom_smooth() +
+    geom_errorbar(aes(ymin = fDOM - fDOMExpUncert,
+                      ymax = fDOM + fDOMExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'blue', alpha = 0.7) +
+    theme_bw() +
+    coord_cartesian(ylim = c(50, 75)) +
+    xlim(c(avail_list[[16]]$summary$flightline_datetime - ddays(1), avail_list[[16]]$summary$flightline_datetime + ddays(1))) +
+    ggtitle(glue('{mysite} AIS fDOM 1 day around {avail_list[[16]]$summary$flightline_datetime} UTC'))
+
+avail_list[[17]]$data10 %>%
+    # dplyr::filter(fDOMFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = fDOM)) +
+    geom_errorbar(aes(ymin = fDOM - fDOMExpUncert,
+                      ymax = fDOM + fDOMExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    # geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'blue', alpha = 0.7) +
+    theme_bw() +
+    coord_cartesian(ylim = c(50, 75)) +
+    xlim(c(avail_list[[17]]$summary$flightline_datetime - ddays(10), avail_list[[17]]$summary$flightline_datetime + ddays(10))) +
+    ggtitle(glue('{mysite} AIS fDOM 10 days around {lubridate::as_date(avail_list[[17]]$summary$flightline_datetime)}'))
+
+
+```
+
+### 2019 fDOM avg
+
+* Smooth the fdom time series using a rolling mean with `zoo::rollapply`. 
+* First convert to a regular 5 minute time series using `tsibble`
+
+```{r, echo = FALSE, warning=FALSE}
+
+df <- avail_list[[8]]$data10 %>% dplyr::filter(fDOMFinalQF == 0) 
+
+source('R/calc-rolling-avgs.R')
+
+fdom_list <- calculate_running_avgs_fDOM(df)
+fdom_df_tsibble <- fdom_list$df_tsibble
+fdom_df_ma <- fdom_list$df_ma
+
+rm1 <- fdom_df_tsibble %>%
+  ggplot(aes(x = datetime, y = fdom5min)) +
+  xlab(element_blank()) +
+  geom_point(pch = 21, fill = 'blue', col = 'blue', alpha = 0.25, size = 2) +
+  geom_line(data = fdom_df_ma, aes(y = ma03), col = 'red', lwd = 1) +
+  theme_bw() +
+  geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+  xlim(c(avail_list[[8]]$summary$flightline_datetime - ddays(5), 
+         avail_list[[8]]$summary$flightline_datetime + ddays(5))) +
+  # coord_cartesian(ylim = c(NA, 40)) +
+  ggtitle(glue('Rolling mean 3 hours'))
+rm2 <- fdom_df_tsibble %>%
+  ggplot(aes(x = datetime, y = fdom5min)) +
+  xlab(element_blank()) +
+  geom_point(pch = 21, fill = 'blue', col = 'blue', alpha = 0.25, size = 2) +
+  geom_line(data = fdom_df_ma, aes(y = ma04), col = 'blue', lwd = 1) +
+  theme_bw() +
+     geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+  xlim(c(avail_list[[8]]$summary$flightline_datetime - ddays(5), 
+         avail_list[[8]]$summary$flightline_datetime + ddays(5))) +
+  # coord_cartesian(ylim = c(NA, 40)) +
+  ggtitle(glue('Rolling mean 4 hours'))
+rm3 <- fdom_df_tsibble %>%
+  ggplot(aes(x = datetime, y = fdom5min)) +
+  xlab(element_blank()) +
+  geom_point(pch = 21, fill = 'blue', col = 'blue', alpha = 0.25, size = 2) +
+  geom_line(data = fdom_df_ma, aes(y = ma12), col = 'black', lwd = 1) +
+  theme_bw() +
+     geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+  xlim(c(avail_list[[8]]$summary$flightline_datetime - ddays(5), 
+         avail_list[[8]]$summary$flightline_datetime + ddays(5))) +
+  # coord_cartesian(ylim = c(NA, 40)) +
+  ggtitle(glue('Rolling mean 12 hours'))
+
+cowplot::plot_grid(rm1, rm2, rm3, ncol = 1)
+```
+
+Get the moving average value closet to flight time. 
+
+* 5min is the original data from that row
+* ma01 = 1 hour window, ma03 = 3 hour window, and so on
+* chl_ma04u is mean, the others are all mean
+
+```{r, echo = FALSE}
+source('R/match-aop-sensor.R')
+
+df2019 <- match_aop_sensor(aop_datetimes_df, fdom_df_ma)
+
+knitr::kable(df2019)
+```
+
+
+### 2020 fDOM avg
+
+* Smooth the fdom time series using a rolling mean with `zoo::rollapply`. 
+* First convert to a regular 5 minute time series using `tsibble`
+
+```{r, echo = FALSE, warning=FALSE}
+
+df <- avail_list[[13]]$data10
+
+source('R/calc-rolling-avgs.R')
+
+fdom_list <- calculate_running_avgs_fDOM(df)
+fdom_df_tsibble <- fdom_list$df_tsibble
+fdom_df_ma <- fdom_list$df_ma
+
+rm1 <- fdom_df_tsibble %>%
+  ggplot(aes(x = datetime, y = fdom5min)) +
+  xlab(element_blank()) +
+  geom_point(pch = 21, fill = 'blue', alpha = 0.25, size = 2) +
+  geom_line(data = fdom_df_ma, aes(y = ma03), col = 'red', lwd = 1) +
+  theme_bw() +
+  geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+  xlim(c(avail_list[[13]]$summary$flightline_datetime - ddays(5), 
+         avail_list[[13]]$summary$flightline_datetime + ddays(5))) +
+  coord_cartesian(ylim = c(65, NA)) +
+  ggtitle(glue('Rolling mean 3 hours'))
+rm2 <- fdom_df_tsibble %>%
+  ggplot(aes(x = datetime, y = fdom5min)) +
+  xlab(element_blank()) +
+  geom_point(pch = 21, fill = 'blue', alpha = 0.25, size = 2) +
+  geom_line(data = fdom_df_ma, aes(y = ma04), col = 'orange', lwd = 1) +
+  theme_bw() +
+     geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+  xlim(c(avail_list[[13]]$summary$flightline_datetime - ddays(5), 
+         avail_list[[13]]$summary$flightline_datetime + ddays(5))) +
+  coord_cartesian(ylim = c(65, NA)) +
+  ggtitle(glue('Rolling mean 4 hours'))
+rm3 <- fdom_df_tsibble %>%
+  ggplot(aes(x = datetime, y = fdom5min)) +
+  xlab(element_blank()) +
+  geom_point(pch = 21, fill = 'blue', alpha = 0.25, size = 2) +
+  geom_line(data = fdom_df_ma, aes(y = ma12), col = 'black', lwd = 1) +
+  theme_bw() +
+     geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+  xlim(c(avail_list[[13]]$summary$flightline_datetime - ddays(5), 
+         avail_list[[13]]$summary$flightline_datetime + ddays(5))) +
+  coord_cartesian(ylim = c(65, NA)) +
+  ggtitle(glue('Rolling mean 12 hours'))
+
+cowplot::plot_grid(rm1, rm2, rm3, ncol = 1)
+```
+
+Get the moving average value closet to flight time. 
+
+* 5min is the original data from that row
+* ma01 = 1 hour window, ma03 = 3 hour window, and so on
+* chl_ma04u is mean, the others are all mean
+
+```{r, echo = FALSE}
+source('R/match-aop-sensor.R')
+
+df2020 <- match_aop_sensor(aop_datetimes_df, fdom_df_ma)
+
+knitr::kable(df2020)
+```
+
+
+## fDOM vs DOC (TO DO)
+
+* use `swchem_site_df` in matching aop/ais function 
+
+> TO DO!!!!
+
+# Suspended Matter
+
+## AOS Sampling
+
+* From processed Surface water chemistry files on Box
+* TDS passes through .45 micron filter
+* TSS is from weight of dried mass that doesnt pass through filter
+
+```{r, echo = FALSE, message = FALSE}
+sm_analytes <- c('TSS', 'TDS', 'TSS - Dry Mass')
+chem_box_dir = '~/Box/data/NEON-processed/swchem'
+sm_site_df <- glue::glue('{chem_box_dir}/{mysite}.tsv') %>% 
+  vroom::vroom() %>%
+  dplyr::filter(!is.na(analyteConcentration)) %>%
+  dplyr::select(domainID, siteID, namedLocation, sampleID, collectDate, 
+                analyte, analyteConcentration, analyteUnits, sampleCondition) %>%
+  dplyr::mutate(collect_date = lubridate::as_date(collectDate)) %>%
+  dplyr::filter(analyte %in% sm_analytes)
+```
+
+```{r, echo  = FALSE, message = FALSE}
+sm_site_df %>%
+  dplyr::filter(namedLocation %in% my_loc) %>%
+  ggplot(aes(x = collect_date, y = analyteConcentration)) +
+  geom_line() +
+  geom_vline(data = aop_dates_df, aes(xintercept = collectDate), col = 'purple') +
+  geom_point(aes(fill = sampleCondition), pch = 21, size = 3) +
+  facet_grid(vars(namedLocation), vars(analyte), scales = "free_y") +
+  # facet_wrap(vars(analyte), scales = "free_y", ncol = 1) +
+  theme_bw() +
+  theme(legend.position = 'bottom') +
+  ggtitle(glue('Suspended matter at {mysite} with flight dates'))
+```
+
+Data from all locations at site
+
+```{r, echo  = FALSE}
+sm_site_df %>%
+  ggplot(aes(x = collect_date, y = analyteConcentration)) +
+  geom_line() +
+  geom_vline(data = aop_dates_df, aes(xintercept = collectDate), col = 'purple') +
+  geom_point(aes(fill = sampleCondition), pch = 21, size = 3) +
+  facet_grid(vars(namedLocation), vars(analyte), scales = "free_y") +
+  # facet_wrap(vars(analyte), scales = "free_y", ncol = 1) +
+  theme_bw() +
+  theme(legend.position = 'bottom') +
+  ggtitle(glue('Suspended matter at {mysite} with flight dates'))
+```
+
+```{r}
+sm_site_df <- sm_site_df %>%
+  dplyr::filter(namedLocation %in% my_loc)
+```
+
+```{r, echo  = FALSE}
+sm_site_df %>%
+  ggplot(aes(x = collect_date, y = analyteConcentration)) +
+  geom_line() +
+  geom_vline(data = aop_dates_df, aes(xintercept = collectDate), col = 'purple') +
+  geom_point(aes(fill = sampleCondition), pch = 21, size = 3) +
+  facet_wrap(vars(analyte), scales = "free_y", ncol = 1) +
+  theme_bw() +
+  scale_y_log10() +
+  theme(legend.position = 'bottom') +
+  ggtitle(glue('Suspended matter (log scale) at {my_loc} with flight dates'))
+```
+
+```{r, echo = FALSE}
+sm_site_df %>%
+  dplyr::filter(lubridate::year(collectDate) > 2016) %>%
+  ggplot(aes(x = collect_date, y = analyteConcentration)) +
+  geom_line() +
+  geom_vline(data = aop_dates_df, aes(xintercept = collectDate), col = 'purple') +
+  geom_point(aes(fill = sampleCondition), pch = 21, size = 3) +
+  facet_wrap(vars(analyte), scales = "free_y", ncol = 1) +
+  ylim(c(0, NA)) +
+  theme_bw() +
+  theme(legend.position = 'bottom') +
+  ggtitle(glue('Surface water chem at {my_loc} since 2016 with flight dates'))
+```
+
+
+> How much does TDS/TSS change?
+
+* Adjusts sample IDs in a new column to group together raw and filtered, while keeping track of duplicates
+* Dissolved passes through .45 micron filter, suspended does not
+
+```{r, echo = FALSE}
+
+sm_site_df2 <- sm_site_df %>%
+  dplyr::mutate(sampleID2 = str_replace(sampleID, "FIL", "RAW"))
+
+sm_summary_df <- sm_site_df2 %>%
+    dplyr::filter(lubridate::year(collectDate) > 2016) %>%
+    dplyr::filter(analyte %in% c('TDS', 'TSS')) %>%
+    dplyr::select(collect_date, sampleID2, analyte, analyteConcentration) %>%
+    tidyr::pivot_wider(names_from = analyte, values_from = analyteConcentration) %>%
+    dplyr::mutate(sus_prop = TSS/(TSS + TDS))
+
+sm_summary_xdate <- sm_summary_df %>% group_by(collect_date) %>%
+  dplyr::summarise(avg_sus_prop = mean(sus_prop))
+
+sm_summary_df %>%
+  ggplot(aes(x = collect_date, y = sus_prop*100)) +
+  geom_line(data = sm_summary_xdate, aes(y = avg_sus_prop*100)) +
+  geom_vline(data = aop_dates_df, aes(xintercept = collectDate), col = 'purple') +
+  geom_point(pch = 21, size = 3, fill = 'red', alpha = 0.5) +
+  theme_bw() +
+  ylim(c(0, NA)) +
+  xlab(element_blank()) +
+  ylab('TSS/(TSS + TDS) %') +
+  ggtitle(glue('Suspended solids proportion over time at {my_loc}'))
+```
+
+**Match sediment aos to aop dates**
+
+```{r}
+source('R/match-aop-aos.R')
+
+sm_match_list <- match_aop_aos(mysite_dates, sm_site_df, 'collect_date')
+
+knitr::kable(sm_match_list$dates)
+knitr::kable(sm_match_list$matches)
+
+```
+
+### TSS x flightdate
+
+> These are the closest in time ground-based measurements of TDS (mg/L) and TSS (mg/L)
+
+* List of values means there are duplicate samples (multiple sampleIDs) from same date.
+
+```{r, echo = FALSE}
+sm_match_list$data %>% 
+  dplyr::select(aos_match, flightdate, days, analyte, analyteConcentration) %>%
+  tidyr::pivot_wider(names_from = analyte, values_from = analyteConcentration, values_fn = list) %>%
+  knitr::kable()
+```
+
+
+## AIS Sensor
+
+> The EXO turbidity sensor employs a near‐IR light source (~780 ‐ 900 nm) and detects scattering at 90 degrees of the incident beam.
+
+* processed turbidity water quality time series on box
+
+```{r, echo = FALSE, message=FALSE}
+wqts_dir <- '~/Box/data/NEON-processed/wq-timeseries'
+turbAIS_df <- glue::glue('{wqts_dir}/{mysite}') %>%
+  fs::dir_ls(glob = '*turbidity*') %>%
+  vroom::vroom()
+source('R/ais-with-buffer.R')
+avail_list <- mysite_datetimes %>% purrr::map(~ais_with_buffer(.x, ts_df = turbAIS_df, mycol = 'turbidity'))
+avail_df <- avail_list %>% map_df(~.x[['summary']])
+yes_avail_df <- avail_df %>% dplyr::filter(check_30day)
+knitr::kable(avail_df)
+```
+
+### 2019 Turbidity plots
+
+* filtered to no quality flags
+
+```{r turbplots2019, echo=FALSE}
+
+###### 2019 #######
+avail_list[[8]]$data30 %>%
+    dplyr::filter(turbidityFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = turbidity)) +
+    geom_errorbar(aes(ymin = turbidity - turbidityExpUncert,
+                      ymax = turbidity + turbidityExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    # geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 1, fill = 'red', alpha = 0.1) +
+    theme_bw() +
+    ggtitle(glue('{mysite} AIS turbidity 30 days around {lubridate::as_date(avail_list[[8]]$summary$flightline_datetime)}'))
+
+avail_list[[8]]$data10 %>%
+   dplyr::filter(turbidityFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = turbidity)) +
+    geom_errorbar(aes(ymin = turbidity - turbidityExpUncert,
+                      ymax = turbidity + turbidityExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    # geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 1, fill = 'red', alpha = 0.1) +
+    theme_bw() +
+    ggtitle(glue('{mysite} AIS turbidity 10 days around {lubridate::as_date(avail_list[[8]]$summary$flightline_datetime)}'))
+
+avail_list[[8]]$data1 %>%
+    dplyr::filter(turbidityFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = turbidity)) +
+     geom_errorbar(aes(ymin = turbidity - turbidityExpUncert,
+                      ymax = turbidity + turbidityExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'red', alpha = 0.7) +
+    theme_bw() +
+    coord_cartesian(ylim = c(0, 8)) +
+    ggtitle(glue('{mysite} AIS turbidity 1 day around {lubridate::as_date(avail_list[[8]]$summary$flightline_datetime)}'))
+
+avail_list[[8]]$dataHr %>%
+    dplyr::filter(turbidityFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = turbidity)) +
+     geom_errorbar(aes(ymin = turbidity - turbidityExpUncert,
+                      ymax = turbidity + turbidityExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'red', alpha = 0.7) +
+    theme_bw() +
+    coord_cartesian(ylim = c(0, 8)) +
+    ggtitle(glue('{mysite} AIS turbidity 12 hours around {avail_list[[8]]$summary$flightline_datetime} UTC'))
+
+avail_list[[11]]$data1 %>%
+    dplyr::filter(turbidityFinalQF == 0) %>%
+   ggplot(aes(x = startDateTime, y = turbidity)) +
+     geom_errorbar(aes(ymin = turbidity - turbidityExpUncert,
+                      ymax = turbidity + turbidityExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'red', alpha = 0.7) +
+    theme_bw() +
+    coord_cartesian(ylim = c(0, 8)) +
+    ggtitle(glue('{mysite} AIS turbidity 1 day around {lubridate::as_date(avail_list[[11]]$summary$flightline_datetime)}'))
+
+avail_list[[11]]$dataHr %>%
+      dplyr::filter(turbidityFinalQF == 0) %>%
+   ggplot(aes(x = startDateTime, y = turbidity)) +
+     geom_errorbar(aes(ymin = turbidity - turbidityExpUncert,
+                      ymax = turbidity + turbidityExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'red', alpha = 0.7) +
+    theme_bw() +
+    coord_cartesian(ylim = c(0, 8)) +
+    ggtitle(glue('{mysite} AIS turbidity 12 hours around {avail_list[[11]]$summary$flightline_datetime} UTC'))
+
+avail_list[[12]]$data1 %>%
+      dplyr::filter(turbidityFinalQF == 0) %>%
+   ggplot(aes(x = startDateTime, y = turbidity)) +
+     geom_errorbar(aes(ymin = turbidity - turbidityExpUncert,
+                      ymax = turbidity + turbidityExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'red', alpha = 0.7) +
+    theme_bw() +
+    coord_cartesian(ylim = c(0, 8)) +
+    ggtitle(glue('{mysite} AIS turbidity 1 day around {lubridate::as_date(avail_list[[12]]$summary$flightline_datetime)}'))
+
+avail_list[[12]]$dataHr %>%
+    dplyr::filter(turbidityFinalQF == 0) %>%
+   ggplot(aes(x = startDateTime, y = turbidity)) +
+     geom_errorbar(aes(ymin = turbidity - turbidityExpUncert,
+                      ymax = turbidity + turbidityExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'red', alpha = 0.7) +
+    theme_bw() +
+    coord_cartesian(ylim = c(0, 8)) +
+    ggtitle(glue('{mysite} AIS turbidity 12 hours around {avail_list[[12]]$summary$flightline_datetime} UTC'))
+
+```
+
+### 2020 Turbidity plots 
+
+* Not filtered for quality flags
+* QF because of lack of calibration? 
+
+
+```{r turbplots2020, echo = FALSE}
+###### 2020 #######
+
+avail_list[[13]]$data30 %>%
+    # dplyr::filter(turbidityFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = turbidity)) +
+     geom_errorbar(aes(ymin = turbidity - turbidityExpUncert,
+                      ymax = turbidity + turbidityExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 1, fill = 'red', alpha = 0.1) +
+    theme_bw() +
+    coord_cartesian(ylim = c(0, 10)) +
+    xlim(c(avail_list[[13]]$summary$flightline_datetime - ddays(30), 
+             avail_list[[13]]$summary$flightline_datetime + ddays(30))) +
+    ggtitle(glue('{mysite} AIS turbidity 30 days around {lubridate::as_date(avail_list[[13]]$summary$flightline_datetime)}'))
+
+avail_list[[13]]$data10 %>%
+     # dplyr::filter(turbidityFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = turbidity)) +
+     geom_errorbar(aes(ymin = turbidity - turbidityExpUncert,
+                      ymax = turbidity + turbidityExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 1, fill = 'red', alpha = 0.1) +
+    theme_bw() +
+    coord_cartesian(ylim = c(0, 10)) +
+    xlim(c(avail_list[[13]]$summary$flightline_datetime - ddays(10), 
+             avail_list[[13]]$summary$flightline_datetime + ddays(10))) +
+    ggtitle(glue('{mysite} AIS turbidity 10 days around {lubridate::as_date(avail_list[[13]]$summary$flightline_datetime)}'))
+
+avail_list[[13]]$data1 %>%
+    # dplyr::filter(turbidityFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = turbidity)) +
+     geom_errorbar(aes(ymin = turbidity - turbidityExpUncert,
+                      ymax = turbidity + turbidityExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'red', alpha = 0.7) +
+    theme_bw() +
+    coord_cartesian(ylim = c(0, 10)) +
+      xlim(c(avail_list[[13]]$summary$flightline_datetime - ddays(1), 
+             avail_list[[13]]$summary$flightline_datetime + ddays(1))) +
+    ggtitle(glue('{mysite} AIS turbidity 1 day around {lubridate::as_date(avail_list[[13]]$summary$flightline_datetime)}'))
+
+avail_list[[16]]$data1 %>%
+    # dplyr::filter(turbidityFinalQF == 0) %>%
+      ggplot(aes(x = startDateTime, y = turbidity)) +
+     geom_errorbar(aes(ymin = turbidity - turbidityExpUncert,
+                      ymax = turbidity + turbidityExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'red', alpha = 0.7) +
+    theme_bw() +
+    coord_cartesian(ylim = c(0, 10)) +
+    xlim(c(avail_list[[16]]$summary$flightline_datetime - ddays(1), avail_list[[16]]$summary$flightline_datetime + ddays(1))) +
+    ggtitle(glue('{mysite} AIS turbidity 1 day around {avail_list[[16]]$summary$flightline_datetime} UTC'))
+
+avail_list[[17]]$data10 %>%
+    # dplyr::filter(turbidityFinalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = turbidity)) +
+     geom_errorbar(aes(ymin = turbidity - turbidityExpUncert,
+                      ymax = turbidity + turbidityExpUncert), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line(lwd = 0.25) +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 1, fill = 'red', alpha = 0.1) +
+    theme_bw() +
+    coord_cartesian(ylim = c(0, 10)) +
+    xlim(c(avail_list[[17]]$summary$flightline_datetime - ddays(10), avail_list[[17]]$summary$flightline_datetime + ddays(10))) +
+    ggtitle(glue('{mysite} AIS turbidity 10 days around {lubridate::as_date(avail_list[[17]]$summary$flightline_datetime)}'))
+
+```
+
+### 2019 turb avg
+
+* Smooth the fdom time series using a rolling mean with `zoo::rollapply`. 
+* First convert to a regular 5 minute time series using `tsibble`
+
+```{r, echo = FALSE, warning=FALSE}
+
+df <- avail_list[[8]]$data10 %>% dplyr::filter(turbidityFinalQF == 0) 
+
+source('R/calc-rolling-avgs.R')
+
+turb_list <- calculate_running_avgs_turb(df)
+turb_df_tsibble <- turb_list$df_tsibble
+turb_df_ma <- turb_list$df_ma
+
+rm1 <- turb_df_tsibble %>%
+  ggplot(aes(x = datetime, y = turb5min)) +
+  xlab(element_blank()) +
+  geom_point(pch = 21, fill = 'red', col = 'red', alpha = 0.25, size = 2) +
+  geom_line(data = turb_df_ma, aes(y = ma03), col = 'green', lwd = 1) +
+  theme_bw() +
+  geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+  xlim(c(avail_list[[8]]$summary$flightline_datetime - ddays(5), 
+         avail_list[[8]]$summary$flightline_datetime + ddays(5))) +
+  coord_cartesian(ylim = c(NA, 6)) +
+  ggtitle(glue('Rolling mean 3 hours'))
+rm2 <- turb_df_tsibble %>%
+  ggplot(aes(x = datetime, y = turb5min)) +
+  xlab(element_blank()) +
+  geom_point(pch = 21, fill = 'red', col = 'red', alpha = 0.25, size = 2) +
+  geom_line(data = turb_df_ma, aes(y = ma04), col = 'blue', lwd = 1) +
+  theme_bw() +
+     geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+  xlim(c(avail_list[[8]]$summary$flightline_datetime - ddays(5), 
+         avail_list[[8]]$summary$flightline_datetime + ddays(5))) +
+  coord_cartesian(ylim = c(NA, 6)) +
+  ggtitle(glue('Rolling mean 4 hours'))
+rm3 <- turb_df_tsibble %>%
+  ggplot(aes(x = datetime, y = turb5min)) +
+  xlab(element_blank()) +
+  geom_point(pch = 21, fill = 'red', col = 'red', alpha = 0.25, size = 2) +
+  geom_line(data = turb_df_ma, aes(y = ma12), col = 'black', lwd = 1) +
+  theme_bw() +
+     geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+  xlim(c(avail_list[[8]]$summary$flightline_datetime - ddays(5), 
+         avail_list[[8]]$summary$flightline_datetime + ddays(5))) +
+  coord_cartesian(ylim = c(NA, 6)) +
+  ggtitle(glue('Rolling mean 12 hours'))
+
+cowplot::plot_grid(rm1, rm2, rm3, ncol = 1)
+```
+
+Get the moving average value closet to flight time. 
+
+* 5min is the original data from that row
+* ma01 = 1 hour window, ma03 = 3 hour window, and so on
+* chl_ma04u is mean, the others are all mean
+
+```{r, echo = FALSE}
+source('R/match-aop-sensor.R')
+
+df2019 <- match_aop_sensor(aop_datetimes_df, turb_df_ma)
+
+knitr::kable(df2019)
+```
+
+
+### 2020 turb avg
+
+* Smooth the fdom time series using a rolling mean with `zoo::rollapply`. 
+* First convert to a regular 5 minute time series using `tsibble`
+
+```{r, echo = FALSE, warning=FALSE}
+
+df <- avail_list[[13]]$data10
+
+source('R/calc-rolling-avgs.R')
+
+turb_list <- calculate_running_avgs_turb(df)
+turb_df_tsibble <- turb_list$df_tsibble
+turb_df_ma <- turb_list$df_ma
+
+rm1 <- turb_df_tsibble %>%
+  ggplot(aes(x = datetime, y = turb5min)) +
+  xlab(element_blank()) +
+  geom_point(pch = 21, fill = 'red', col = 'red', alpha = 0.25, size = 2) +
+  geom_line(data = turb_df_ma, aes(y = ma03), col = 'green', lwd = 1) +
+  theme_bw() +
+  geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+  xlim(c(avail_list[[13]]$summary$flightline_datetime - ddays(5), 
+         avail_list[[13]]$summary$flightline_datetime + ddays(5))) +
+  coord_cartesian(ylim = c(NA, 6)) +
+  ggtitle(glue('Rolling mean 3 hours'))
+rm2 <- turb_df_tsibble %>%
+  ggplot(aes(x = datetime, y = turb5min)) +
+  xlab(element_blank()) +
+  geom_point(pch = 21, fill = 'red', col = 'red', alpha = 0.25, size = 2) +
+  geom_line(data = turb_df_ma, aes(y = ma04), col = 'blue', lwd = 1) +
+  theme_bw() +
+     geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+  xlim(c(avail_list[[13]]$summary$flightline_datetime - ddays(5), 
+         avail_list[[13]]$summary$flightline_datetime + ddays(5))) +
+  coord_cartesian(ylim = c(NA, 6)) +
+  ggtitle(glue('Rolling mean 4 hours'))
+rm3 <- turb_df_tsibble %>%
+  ggplot(aes(x = datetime, y = turb5min)) +
+  xlab(element_blank()) +
+  geom_point(pch = 21, fill = 'red', col = 'red', alpha = 0.25, size = 2) +
+  geom_line(data = turb_df_ma, aes(y = ma12), col = 'black', lwd = 1) +
+  theme_bw() +
+     geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+  xlim(c(avail_list[[13]]$summary$flightline_datetime - ddays(5), 
+         avail_list[[13]]$summary$flightline_datetime + ddays(5))) +
+  coord_cartesian(ylim = c(NA, 6)) +
+  ggtitle(glue('Rolling mean 12 hours'))
+
+cowplot::plot_grid(rm1, rm2, rm3, ncol = 1)
+```
+
+Get the moving average value closet to flight time. 
+
+* 5min is the original data from that row
+* ma01 = 1 hour window, ma03 = 3 hour window, and so on
+* chl_ma04u is mean, the others are all mean
+
+```{r, echo = FALSE}
+source('R/match-aop-sensor.R')
+
+df2020 <- match_aop_sensor(aop_datetimes_df, turb_df_ma)
+
+knitr::kable(df2020)
+```
+
+
+## Turbidity vs TDS/ TSS (TODO)
+
+* use sm_site_df in matching function to get sensor aos overlap
+
+> TO DO!!!!
+
+# SUNA (move up later)
+
+* nitrate sensor 15 minute interval time series
+* value is from a burst of readings after lamp warms up
+* error bars on these plots are std error of mean, not expanded uncertainty like for other sensors
+
+```{r, echo = FALSE, message = FALSE}
+sunats_dir <- '~/Box/data/NEON-processed/suna-timeseries/'
+sunaAIS_df <- glue::glue('{sunats_dir}/{mysite}') %>%
+  fs::dir_ls(glob = '*SUNA*') %>%
+  vroom::vroom()
+source('R/ais-with-buffer.R')
+avail_list <- mysite_datetimes %>% 
+  purrr::map(~ais_with_buffer(.x, ts_df = sunaAIS_df, mycol = 'surfWaterNitrateMean'))
+avail_df <- avail_list %>% map_df(~.x[['summary']])
+yes_avail_df <- avail_df %>% dplyr::filter(check_30day)
+knitr::kable(avail_df)
+knitr::kable(yes_avail_df)
+```
+
+## Helper table for manually pulling SUNA data (AOP dates):
+
+* Helper table for pulling L0 SUNA for flight dates with SUNA data. 
+* Interval is 3 days before and after to facilitate downloads. 
+* Connect to VPN and use DQ Blizzard. View Level 0 data, extract L0 sub-stream
+* stream 006 is Absorbance at 254
+* stream 007 is Absorbance at 350
+
+
+```{r,echo=FALSE}
+yes_avail_df %>%
+  dplyr::select(flightline_datetime, check_1day) %>%
+  dplyr::mutate(interval3_start = as_date(flightline_datetime - ddays(3)), 
+                interval3_end = as_date(flightline_datetime + ddays(3))) %>%
+  knitr::kable()
+```
+
+* Those are the availabilities for the SUNA data at flight times. 
+* Save 1 file for each year eg `NEON-L0-SUNA/AOP-dates/{mysite}/{mysite}-103-2020.csv`
+* Process raw suna data with `process-L0-SUNA` in processing project
+
+## 2019 abs plots
+
+```{r, echo = FALSE}
+proc_dir <- glue::glue('~/Box/data/NEON-processed/suna-L0-timeseries/{mysite}/AOP-dates')
+absSUNA_df <- fs::dir_ls(proc_dir, glob = '*2019*') %>% vroom::vroom()
+```
+
+```{r, echo = FALSE}
+a1 <- absSUNA_df %>%
+    ggplot(aes(x = burst_id, y = mean_abs254)) +
+    geom_errorbar(aes(ymin = mean_abs254 - se_abs254,
+                      ymax = mean_abs254 + se_abs254), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    # geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'orange', alpha = 0.5) +
+    theme_bw() +
+    coord_cartesian(ylim = c(NA, 0.8)) +
+    xlim(range(absSUNA_df$burst_id)) +
+    ggtitle(glue('{mysite} abs254 from L0 SUNA'))
+a2 <- absSUNA_df %>%
+    ggplot(aes(x = burst_id, y = mean_abs350)) +
+    geom_errorbar(aes(ymin = mean_abs350 - se_abs350,
+                      ymax = mean_abs350 + se_abs350), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    # geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'orange', alpha = 0.5) +
+    theme_bw() +
+    coord_cartesian(ylim = c(NA, 0.3)) +
+      xlim(range(absSUNA_df$burst_id)) +
+    ggtitle(glue('{mysite} abs350 from L0 SUNA'))
+a3 <- absSUNA_df %>%
+    ggplot(aes(x = burst_id, y = mean_abs254/mean_abs350)) +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    # geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'hotpink', col = 'hotpink', alpha = 0.85) +
+    theme_bw() +
+    ylab('254/350 ratio') +
+    # coord_cartesian(ylim = c(NA, 0.3)) +
+    xlim(range(absSUNA_df$burst_id)) +
+    ggtitle(glue('{mysite} ratio 254/350 from L0 SUNA'))
+cowplot::plot_grid(a1, a2, a3, ncol = 1)
+```
+
+## 2019 abs avg
+
+```{r, echo = FALSE, warning=FALSE}
+df <- absSUNA_df
+
+source('R/calc-rolling-avgs.R')
+
+abs_list <- calculate_running_avgs_abs(df)
+abs_df_tsibble <- abs_list$df_tsibble
+abs_df_ma <- abs_list$df_ma
+
+rm1 <- abs_df_tsibble %>%
+  ggplot(aes(x = datetime, y = mean_abs254)) +
+  xlab(element_blank()) +
+  geom_point(pch = 21, fill = 'orange', col = 'orange', alpha = 0.5, size = 2) +
+  geom_line(data = abs_df_ma, aes(y = abs254_ma01), col = 'black', lwd = 1) +
+  theme_bw() +
+  geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+  xlim(range(abs_df_tsibble$datetime)) +
+  coord_cartesian(ylim = c(NA, 0.8)) +
+  ggtitle(glue('Rolling mean 1 hours'))
+rm2 <- abs_df_tsibble %>%
+  ggplot(aes(x = datetime, y = mean_abs254)) +
+  xlab(element_blank()) +
+  geom_point(pch = 21, fill = 'orange', col = 'orange', alpha = 0.25, size = 2) +
+  geom_line(data = abs_df_ma, aes(y = abs254_ma04), col = 'black', lwd = 1) +
+  # geom_line(data = abs_df_ma, aes(y = abs254_ma04u), col = 'blue', lwd = 1) +
+  theme_bw() +
+     geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+  xlim(range(abs_df_tsibble$datetime)) +
+  coord_cartesian(ylim = c(NA, 0.8)) +
+  ggtitle(glue('Rolling mean 4 hours'))
+rm3 <- abs_df_tsibble %>%
+  ggplot(aes(x = datetime, y = mean_abs254)) +
+  xlab(element_blank()) +
+  geom_point(pch = 21, fill = 'orange', col = 'orange', alpha = 0.25, size = 2) +
+  geom_line(data = abs_df_ma, aes(y = abs254_ma12), col = 'black', lwd = 1) +
+  theme_bw() +
+     geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+   xlim(range(abs_df_tsibble$datetime)) +
+  coord_cartesian(ylim = c(NA, 0.8)) +
+  ggtitle(glue('Rolling mean 12 hours'))
+
+cowplot::plot_grid(rm1, rm2, rm3, ncol = 1)
+```
+
+```{r, echo = FALSE}
+source('R/match-aop-sensor.R')
+
+df2019 <- match_aop_sensor(aop_datetimes_df, abs_df_ma)
+
+df2019 %>% dplyr::select(c(1:3,5:10)) %>% knitr::kable(digits = 4)
+df2019 %>% dplyr::select(c(1,2,4,11:16)) %>% knitr::kable(digits = 4)
+```
+
+## 2020 abs plots
+```{r, echo = FALSE}
+proc_dir <- glue::glue('~/Box/data/NEON-processed/suna-L0-timeseries/{mysite}/AOP-dates')
+absSUNA_df <- fs::dir_ls(proc_dir, glob = '*2020*') %>% vroom::vroom()
+```
+
+```{r, echo = FALSE}
+a1 <- absSUNA_df %>%
+    ggplot(aes(x = burst_id, y = mean_abs254)) +
+    geom_errorbar(aes(ymin = mean_abs254 - se_abs254,
+                      ymax = mean_abs254 + se_abs254), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    # geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'orange', alpha = 0.5) +
+    theme_bw() +
+    # coord_cartesian(ylim = c(NA, 0.8)) +
+    xlim(range(absSUNA_df$burst_id)) +
+    ggtitle(glue('{mysite} abs254 from L0 SUNA'))
+a2 <- absSUNA_df %>%
+    ggplot(aes(x = burst_id, y = mean_abs350)) +
+    geom_errorbar(aes(ymin = mean_abs350 - se_abs350,
+                      ymax = mean_abs350 + se_abs350), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    # geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'orange', alpha = 0.5) +
+    theme_bw() +
+    # coord_cartesian(ylim = c(NA, 0.3)) +
+      xlim(range(absSUNA_df$burst_id)) +
+    ggtitle(glue('{mysite} abs350 from L0 SUNA'))
+a3 <- absSUNA_df %>%
+    ggplot(aes(x = burst_id, y = mean_abs254/mean_abs350)) +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    # geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'hotpink', col = 'hotpink', alpha = 0.85) +
+    theme_bw() +
+    ylab('254/350 ratio') +
+    # coord_cartesian(ylim = c(NA, 0.3)) +
+    xlim(range(absSUNA_df$burst_id)) +
+    ggtitle(glue('{mysite} ratio 254/350 from L0 SUNA'))
+cowplot::plot_grid(a1, a2, a3, ncol = 1)
+```
+
+## 2020 abs avg
+
+```{r, echo = FALSE, warning = FALSE}
+df <- absSUNA_df
+
+source('R/calc-rolling-avgs.R')
+
+abs_list <- calculate_running_avgs_abs(df)
+abs_df_tsibble <- abs_list$df_tsibble
+abs_df_ma <- abs_list$df_ma
+
+rm1 <- abs_df_tsibble %>%
+  ggplot(aes(x = datetime, y = mean_abs254)) +
+  xlab(element_blank()) +
+  geom_point(pch = 21, fill = 'orange', col = 'orange', alpha = 0.5, size = 2) +
+  geom_line(data = abs_df_ma, aes(y = abs254_ma01), col = 'black', lwd = 1) +
+  theme_bw() +
+  geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+  xlim(range(abs_df_tsibble$datetime)) +
+  # coord_cartesian(ylim = c(NA, 0.8)) +
+  ggtitle(glue('Rolling mean 1 hours'))
+rm2 <- abs_df_tsibble %>%
+  ggplot(aes(x = datetime, y = mean_abs254)) +
+  xlab(element_blank()) +
+  geom_point(pch = 21, fill = 'orange', col = 'orange', alpha = 0.25, size = 2) +
+  geom_line(data = abs_df_ma, aes(y = abs254_ma04), col = 'black', lwd = 1) +
+  # geom_line(data = abs_df_ma, aes(y = abs254_ma04u), col = 'blue', lwd = 1) +
+  theme_bw() +
+     geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+  xlim(range(abs_df_tsibble$datetime)) +
+  # coord_cartesian(ylim = c(NA, 0.8)) +
+  ggtitle(glue('Rolling mean 4 hours'))
+rm3 <- abs_df_tsibble %>%
+  ggplot(aes(x = datetime, y = mean_abs254)) +
+  xlab(element_blank()) +
+  geom_point(pch = 21, fill = 'orange', col = 'orange', alpha = 0.25, size = 2) +
+  geom_line(data = abs_df_ma, aes(y = abs254_ma12), col = 'black', lwd = 1) +
+  theme_bw() +
+     geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+   xlim(range(abs_df_tsibble$datetime)) +
+  # coord_cartesian(ylim = c(NA, 0.8)) +
+  ggtitle(glue('Rolling mean 12 hours'))
+
+cowplot::plot_grid(rm1, rm2, rm3, ncol = 1)
+```
+
+```{r, echo = FALSE}
+source('R/match-aop-sensor.R')
+
+df2020 <- match_aop_sensor(aop_datetimes_df, abs_df_ma)
+
+df2020 %>% dplyr::select(c(1:3,5:10)) %>% knitr::kable(digits = 4)
+df2020 %>% dplyr::select(c(1,2,4,11:16)) %>% knitr::kable(digits = 4)
+```
+
+## x2019 SUNA plots 2019
+
+* filtered to no Quality Flags
+
+```{r sunaplots2019, echo=FALSE, eval = FALSE}
+
+###### 2019 #######
+avail_list[[8]]$data30 %>% 
+    dplyr::filter(finalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = surfWaterNitrateMean)) +
+    geom_errorbar(aes(ymin = surfWaterNitrateMean - surfWaterNitrateStdErMean,
+                      ymax = surfWaterNitrateMean + surfWaterNitrateStdErMean), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    # geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 1, fill = 'orange', alpha = 0.1) +
+    theme_bw() +
+     xlim(c(avail_list[[8]]$summary$flightline_datetime - ddays(30),
+            avail_list[[8]]$summary$flightline_datetime + ddays(30))) +
+    ggtitle(glue('{mysite} AIS nitrate 30 days around {lubridate::as_date(avail_list[[8]]$summary$flightline_datetime)}'))
+
+avail_list[[8]]$data10 %>%
+    dplyr::filter(finalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = surfWaterNitrateMean)) +
+    geom_errorbar(aes(ymin = surfWaterNitrateMean - surfWaterNitrateStdErMean,
+                      ymax = surfWaterNitrateMean + surfWaterNitrateStdErMean), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    # geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 1, fill = 'orange', alpha = 0.7) +
+    theme_bw() +
+     xlim(c(avail_list[[8]]$summary$flightline_datetime - ddays(10),
+            avail_list[[8]]$summary$flightline_datetime + ddays(10))) +
+    ggtitle(glue('{mysite} AIS nitrate 10 days around {lubridate::as_date(avail_list[[8]]$summary$flightline_datetime)}'))
+
+avail_list[[8]]$data1 %>%
+   dplyr::filter(finalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = surfWaterNitrateMean)) +
+    geom_errorbar(aes(ymin = surfWaterNitrateMean - surfWaterNitrateStdErMean,
+                      ymax = surfWaterNitrateMean + surfWaterNitrateStdErMean), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'orange', alpha = 0.7) +
+    theme_bw() +
+     xlim(c(avail_list[[8]]$summary$flightline_datetime - ddays(1),
+            avail_list[[8]]$summary$flightline_datetime + ddays(1))) +
+    ggtitle(glue('{mysite} AIS nitrate 1 day around {lubridate::as_date(avail_list[[8]]$summary$flightline_datetime)}'))
+
+avail_list[[11]]$data1 %>%
+    dplyr::filter(finalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = surfWaterNitrateMean)) +
+    geom_errorbar(aes(ymin = surfWaterNitrateMean - surfWaterNitrateStdErMean,
+                      ymax = surfWaterNitrateMean + surfWaterNitrateStdErMean), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'orange', alpha = 0.7) +
+    theme_bw() +
+     xlim(c(avail_list[[11]]$summary$flightline_datetime - ddays(1),
+            avail_list[[11]]$summary$flightline_datetime + ddays(1))) +
+    ggtitle(glue('{mysite} AIS nitrate 1 day around {lubridate::as_date(avail_list[[11]]$summary$flightline_datetime)}'))
+
+avail_list[[12]]$data1 %>%
+    dplyr::filter(finalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = surfWaterNitrateMean)) +
+    geom_errorbar(aes(ymin = surfWaterNitrateMean - surfWaterNitrateStdErMean,
+                      ymax = surfWaterNitrateMean + surfWaterNitrateStdErMean), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'orange', alpha = 0.7) +
+    theme_bw() +
+     xlim(c(avail_list[[12]]$summary$flightline_datetime - ddays(1),
+            avail_list[[12]]$summary$flightline_datetime + ddays(1))) +
+    ggtitle(glue('{mysite} AIS nitrate 1 day around {lubridate::as_date(avail_list[[12]]$summary$flightline_datetime)}'))
+
+```
+
+## x2020 SUNA plots 2020 
+
+* Not filtered by QFs
+* QF because of lack of calibration? 
+
+```{r sunaplots2020, echo = FALSE, eval = FALSE}
+###### 2020 #######
+
+avail_list[[13]]$data30 %>%
+ dplyr::filter(finalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = surfWaterNitrateMean)) +
+    geom_errorbar(aes(ymin = surfWaterNitrateMean - surfWaterNitrateStdErMean,
+                      ymax = surfWaterNitrateMean + surfWaterNitrateStdErMean), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    # geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 1, fill = 'orange', alpha = 0.1) +
+    theme_bw() +
+     xlim(c(avail_list[[13]]$summary$flightline_datetime - ddays(30),
+            avail_list[[13]]$summary$flightline_datetime + ddays(30))) +
+    ggtitle(glue('{mysite} AIS nitrate 30 days around {lubridate::as_date(avail_list[[13]]$summary$flightline_datetime)}'))
+
+avail_list[[13]]$data10 %>%
+  dplyr::filter(finalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = surfWaterNitrateMean)) +
+    geom_errorbar(aes(ymin = surfWaterNitrateMean - surfWaterNitrateStdErMean,
+                      ymax = surfWaterNitrateMean + surfWaterNitrateStdErMean), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    # geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 1, fill = 'orange', alpha = 0.7) +
+    theme_bw() +
+     xlim(c(avail_list[[13]]$summary$flightline_datetime - ddays(10),
+            avail_list[[13]]$summary$flightline_datetime + ddays(10))) +
+    coord_cartesian(ylim = c(20, 40)) +
+    ggtitle(glue('{mysite} AIS nitrate 10 days around {lubridate::as_date(avail_list[[13]]$summary$flightline_datetime)}'))
+
+avail_list[[13]]$data1 %>%
+   dplyr::filter(finalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = surfWaterNitrateMean)) +
+    geom_errorbar(aes(ymin = surfWaterNitrateMean - surfWaterNitrateStdErMean,
+                      ymax = surfWaterNitrateMean + surfWaterNitrateStdErMean), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'orange', alpha = 0.7) +
+    theme_bw() +
+      coord_cartesian(ylim = c(20, 40)) +
+     xlim(c(avail_list[[13]]$summary$flightline_datetime - ddays(1),
+            avail_list[[13]]$summary$flightline_datetime + ddays(1))) +
+    ggtitle(glue('{mysite} AIS nitrate 1 day around {lubridate::as_date(avail_list[[13]]$summary$flightline_datetime)}'))
+
+avail_list[[16]]$data1 %>%
+  dplyr::filter(finalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = surfWaterNitrateMean)) +
+    geom_errorbar(aes(ymin = surfWaterNitrateMean - surfWaterNitrateStdErMean,
+                      ymax = surfWaterNitrateMean + surfWaterNitrateStdErMean), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'orange', alpha = 0.7) +
+    theme_bw() +
+      coord_cartesian(ylim = c(20, 40)) +
+     xlim(c(avail_list[[16]]$summary$flightline_datetime - ddays(1),
+            avail_list[[16]]$summary$flightline_datetime + ddays(1))) +
+    ggtitle(glue('{mysite} AIS nitrate 1 day around {avail_list[[16]]$summary$flightline_datetime} UTC'))
+
+avail_list[[17]]$data10 %>%
+    dplyr::filter(finalQF == 0) %>%
+    ggplot(aes(x = startDateTime, y = surfWaterNitrateMean)) +
+    geom_errorbar(aes(ymin = surfWaterNitrateMean - surfWaterNitrateStdErMean,
+                      ymax = surfWaterNitrateMean + surfWaterNitrateStdErMean), col = 'gray') +
+    geom_vline(data = aop_datetimes_df, 
+               aes(xintercept = collectDateTime), col = 'purple') +
+    geom_line() +
+    xlab(element_blank()) +
+    geom_point(pch = 21, size = 2, fill = 'orange', alpha = 0.5) +
+    theme_bw() +
+      coord_cartesian(ylim = c(20, 40)) +
+     xlim(c(avail_list[[17]]$summary$flightline_datetime - ddays(10),
+            avail_list[[17]]$summary$flightline_datetime + ddays(10))) +
+    ggtitle(glue('{mysite} AIS nitrate 10 days around {lubridate::as_date(avail_list[[17]]$summary$flightline_datetime)}'))
+
+```
+
+## SUNA vs AOS absorbs
+
+* Use surface water chemistry data to see date and times of ground sample collection for UV absorbance data
+
+> This is the availability of SUNA data for AOS sampling dates
+
+```{r, echo = FALSE, message = FALSE}
+suva_analytes <- c('UV Absorbance (280 nm)', 'UV Absorbance (254 nm)', 'DOC')
+uv_aos_df <- swchem_site_df %>% 
+  dplyr::filter(analyte %in% suva_analytes) %>% 
+  dplyr::filter(!is.na(analyteConcentration)) %>%
+  dplyr::select(sampleID, collectDate, analyte, analyteConcentration, collect_date) %>%
+  tidyr::pivot_wider(names_from = analyte, values_from = analyteConcentration) %>%
+  dplyr::rename(uv280_percm = `UV Absorbance (280 nm)`,
+                uv254_percm = `UV Absorbance (254 nm)`) %>%
+  dplyr::mutate(checkNAs = !is.na(DOC) & !is.na(uv254_percm)) %>%
+  dplyr::filter(checkNAs) %>%
+  dplyr::mutate(abs254 = uv254_percm * DOC, 
+                abs280 = uv280_percm * DOC)
+
+suva_datetimes <- uv_aos_df$collectDate %>% unique()
+suva_datetimes_df <- data.frame(suva_datetime = suva_datetimes)
+
+avail_list <- suva_datetimes %>% 
+  purrr::map(~ais_with_buffer2(.x, ts_df = sunaAIS_df, mycol = 'surfWaterNitrateMean'))
+avail_df <- avail_list %>% map_df(~.x[['summary']])
+
+yes_avail_df <- avail_df %>% dplyr::filter(check_3day)
+knitr::kable(avail_df)
+knitr::kable(yes_avail_df)
+
+avail_df %>%
+  ggplot(aes(x = aos_datetime, y = check_1day)) +
+  geom_point(aes(fill = check_6hr), pch = 21, size = 3) +
+  theme_bw() +
+  ggtitle(glue('{mysite} SUNA data at buoy during AOS sampling days'))
+```
+
+Helper table for manually pulling SUNA data (AOS dates):
+
+```{r, echo = FALSE}
+yes_avail_df %>%
+  dplyr::select(aos_datetime, check_1day) %>%
+  dplyr::mutate(interval3_start = as_date(aos_datetime - ddays(3)), 
+                interval3_end = as_date(aos_datetime + ddays(3))) %>%
+  knitr::kable()
+```
+
+## SUNA level 0 absorbances
+
+* processed SUNA absorbance data are in box folder `NEON-processed/suna-L0-timeseries`
+* how do absorbances from nitrate sensor compare to AOS samples? 
+
+```{r, echo = FALSE, message=FALSE}
+# uv_aos_df
+
+my_proc_dir = glue('~/Box/data/NEON-processed/suna-L0-timeseries/{mysite}/AOS-dates')
+
+suna_files <- fs::dir_ls(my_proc_dir)
+
+suna_list <- suna_files %>%
+  purrr::map_df(~read_csv(.x), .id = 'filename') %>%
+  dplyr::mutate(filename = basename(filename)) %>%
+  dplyr::mutate(aos_date = str_split(filename, '_', simplify = TRUE)[,3]) %>%
+  dplyr::mutate(aos_date = lubridate::as_date(aos_date))
+
+
+uv_aos_df254 <- uv_aos_df %>% 
+  dplyr::select(collectDate, collect_date, uv254_percm) %>%
+  dplyr::mutate(aos_date = collect_date) %>%
+  dplyr::filter(aos_date %in% unique(suna_list$aos_date))
+
+suna_list %>%
+  ggplot(aes(x = burst_id, y = mean_abs254)) +
+  geom_point(pch = 21, alpha = 0.5, size = 2,
+             aes(fill = mean_abs254, col = mean_abs254)) +
+  geom_errorbar(aes(ymin = mean_abs254 - se_abs254,
+                    ymax = mean_abs254 + se_abs254)) +
+  geom_point(data = uv_aos_df254, aes(x = collectDate, y = uv254_percm),
+             pch = 23, fill = 'red', size = 3) +
+  scale_fill_viridis_c() +
+  scale_color_viridis_c() +
+  theme_bw() +
+  geom_vline(data = suva_datetimes_df, aes(xintercept = suva_datetime), lty = 2) +
+  facet_wrap(vars(aos_date), scales = 'free_x') +
+  # coord_cartesian(ylim = c(NA, 0.7)) +
+  scale_x_datetime(date_breaks = '2 day', date_labels = '%b %d') +
+  xlab(element_blank()) +
+  ggtitle(glue('{mysite} SUNA abs254 3 days around AOS sampling dates'))
+
+# suna_list %>% 
+#   ggplot(aes(x = mean_abs254, y = mean_abs350)) +
+#   geom_point(aes(fill = aos_date, col = aos_date), pch = 21, size = 2, alpha = 0.5) +
+#   coord_cartesian(xlim = c(NA, 0.7), ylim = c(NA, 0.2)) +
+#   theme_bw() +
+#   ggtitle(glue('{mysite} absorbance from SUNA L0 around AOS dates'))
+
+```
+
+Regression for sensor data within the same day
+
+```{r, echo = FALSE}
+
+suna_summary <- suna_list %>%
+  dplyr::mutate(suna_date = lubridate::as_date(burst_id)) %>%
+  dplyr::filter(suna_date %in% unique(uv_aos_df254$collect_date)) %>%
+  dplyr::group_by(suna_date) %>%
+  summarise(daily_avg_254 = median(mean_abs254),
+            q05_254 = quantile(mean_abs254, 0.05),
+            q95_254 = quantile(mean_abs254, 0.95),
+            daily_avg350 = median(mean_abs350),
+            q05_350 = quantile(mean_abs350, 0.05),
+            q95_350 = quantile(mean_abs350, 0.95))
+
+suna_join <- suna_summary %>%
+  dplyr::left_join(uv_aos_df254, by = c('suna_date' = 'aos_date'))
+
+suna_join %>%
+  ggplot(aes(x = uv254_percm, y = daily_avg_254)) +
+  geom_errorbar(aes(ymin = q05_254, ymax = q95_254)) +
+  geom_abline(slope = 1, intercept = 0, lty = 2) +
+  geom_point(aes(fill = as.factor(suna_date)), pch = 21, size = 3) +
+  geom_smooth(method = 'lm') +
+  theme_bw() +
+  xlab('AOS value (per cm?)') + ylab('SUNA L0 range (AU???)') +
+  ggtitle(glue('{mysite} AOS vs. SUNA L0 abs254 (5-95%)'))
+  
+```
+
+
+
