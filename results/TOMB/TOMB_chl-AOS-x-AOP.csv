@@ -1,0 +1,3 @@
+siteID,namedLocation,flightdate,aos_match,days_diff,analyte,avg,sd,n
+TOMB,TOMB.AOS.buoy.c0,2019-05-06,2019-04-09,27,chlorophyll a,9.74,NA,1
+TOMB,TOMB.AOS.buoy.c0,2019-05-06,2019-04-09,27,pheophytin,10.83,NA,1

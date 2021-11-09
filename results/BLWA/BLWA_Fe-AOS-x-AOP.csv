@@ -1,0 +1,6 @@
+siteID,namedLocation,flightdate,aos_match,days_diff,analyte,avg,sd,n
+BLWA,BLWA.AOS.buoy.c0,2017-05-15,2017-05-16,1,Fe,0.0111,NA,1
+BLWA,BLWA.AOS.buoy.c0,2017-05-16,2017-05-16,0,Fe,0.0111,NA,1
+BLWA,BLWA.AOS.buoy.c0,2017-05-26,2017-05-23,3,Fe,5e-4,NA,1
+BLWA,BLWA.AOS.buoy.c0,2018-04-30,2018-05-02,2,Fe,5e-4,NA,1
+BLWA,BLWA.AOS.buoy.c0,2019-04-29,2019-05-02,3,Fe,0.0071,NA,1

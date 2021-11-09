@@ -1,0 +1,4 @@
+siteID,namedLocation,flightdate,aos_match,days_diff,analyte,avg,sd,n
+TOMB,TOMB.AOS.buoy.c0,2017-05-17,2017-05-16,1,Fe,0.0284,NA,1
+TOMB,TOMB.AOS.buoy.c0,2018-04-28,2018-04-25,3,Fe,0.2845,NA,1
+TOMB,TOMB.AOS.buoy.c0,2019-05-06,2019-05-07,1,Fe,0.0181,NA,1

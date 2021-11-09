@@ -1,0 +1,3 @@
+siteID,namedLocation,flightdate,aos_match,days_diff,analyte,avg,sd,n
+BLWA,BLWA.AOS.buoy.c0,2019-04-29,2019-06-25,57,chlorophyll a,8.57,NA,1
+BLWA,BLWA.AOS.buoy.c0,2019-04-29,2019-06-25,57,pheophytin,8.57,NA,1
