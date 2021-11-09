@@ -1,0 +1,9 @@
+siteID,namedLocation,flightdate,aos_match,days_diff,analyte,avg,sd,n
+PRLA,PRLA.AOS.buoy.c0,2017-06-21,2017-06-08,13,UV Absorbance (280 nm),0.2876,NA,1
+PRLA,PRLA.AOS.buoy.c0,2017-06-26,2017-07-06,10,UV Absorbance (280 nm),0.2932666666666667,0.003992910383834475,3
+PRLA,PRLA.AOS.buoy.c0,2019-07-26,2019-08-06,11,UV Absorbance (280 nm),0.3852,NA,1
+PRLA,PRLA.AOS.buoy.c0,2019-07-27,2019-08-06,10,UV Absorbance (280 nm),0.3852,NA,1
+PRLA,PRLA.AOS.buoy.c0,2019-07-30,2019-08-06,7,UV Absorbance (280 nm),0.3852,NA,1
+PRLA,PRLA.AOS.buoy.c0,2020-06-24,2020-08-04,41,UV Absorbance (280 nm),0.3118,NA,1
+PRLA,PRLA.AOS.buoy.c0,2020-06-26,2020-08-04,39,UV Absorbance (280 nm),0.3118,NA,1
+PRLA,PRLA.AOS.buoy.c0,2020-07-02,2020-08-04,33,UV Absorbance (280 nm),0.3118,NA,1

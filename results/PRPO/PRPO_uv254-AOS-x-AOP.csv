@@ -1,0 +1,5 @@
+siteID,namedLocation,flightdate,aos_match,days_diff,analyte,avg,sd,n
+PRPO,PRPO.AOS.buoy.c0,2017-06-19,2017-06-06,13,UV Absorbance (254 nm),0.4551,NA,1
+PRPO,PRPO.AOS.buoy.c0,2017-06-21,2017-07-05,14,UV Absorbance (254 nm),0.4699,0.009584883932526263,3
+PRPO,PRPO.AOS.buoy.c0,2019-07-30,2019-08-06,7,UV Absorbance (254 nm),0.6763,NA,1
+PRPO,PRPO.AOS.buoy.c0,2020-06-24,2020-08-04,41,UV Absorbance (254 nm),0.6037,NA,1

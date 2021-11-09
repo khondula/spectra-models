@@ -1,0 +1,11 @@
+siteID,namedLocation,flightdate,aos_match,days_diff,analyte,avg,sd,n
+FLNT,FLNT.AOS.buoy.c0,2017-09-17,2017-10-18,31,chlorophyll a,2.76,NA,1
+FLNT,FLNT.AOS.buoy.c0,2017-09-17,2017-10-18,31,pheophytin,0.59,NA,1
+FLNT,FLNT.AOS.buoy.c0,2017-09-17,2017-10-18,31,total chlorophyll a,3.17,NA,1
+FLNT,FLNT.AOS.buoy.c0,2017-09-18,2017-10-18,30,chlorophyll a,2.76,NA,1
+FLNT,FLNT.AOS.buoy.c0,2017-09-18,2017-10-18,30,pheophytin,0.59,NA,1
+FLNT,FLNT.AOS.buoy.c0,2017-09-18,2017-10-18,30,total chlorophyll a,3.17,NA,1
+FLNT,FLNT.AOS.buoy.c0,2019-08-30,2019-07-23,38,chlorophyll a,2.6,0.028284271247461926,2
+FLNT,FLNT.AOS.buoy.c0,2019-08-30,2019-07-23,38,pheophytin,2.3049999999999997,0.1626345596729059,2
+FLNT,FLNT.AOS.buoy.c0,2019-09-06,2019-10-15,39,chlorophyll a,1.53,NA,1
+FLNT,FLNT.AOS.buoy.c0,2019-09-06,2019-10-15,39,pheophytin,2.01,NA,1

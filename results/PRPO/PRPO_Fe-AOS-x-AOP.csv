@@ -1,0 +1,4 @@
+siteID,namedLocation,flightdate,aos_match,days_diff,analyte,avg,sd,n
+PRPO,PRPO.AOS.buoy.c0,2017-06-19,2017-06-06,13,Fe,5e-4,NA,1
+PRPO,PRPO.AOS.buoy.c0,2017-06-21,2017-07-05,14,Fe,5e-4,0,3
+PRPO,PRPO.AOS.buoy.c0,2019-07-30,2019-08-06,7,Fe,0.001,NA,1
