@@ -34,6 +34,8 @@ match_aop_aos <- function(aop_dates, aos_df, aos_date_col = 'collect_date', thre
     dplyr::mutate(meets_thresh1 = min_days <= thresh1_days) %>%
     dplyr::mutate(meets_thresh2 = min_days <= thresh2_days)
   
+  check_none_before <- all(is.na(dates_df$aos_before))
+  
   # actual data
   
   match_df <- dates_df %>%
@@ -42,8 +44,9 @@ match_aop_aos <- function(aop_dates, aos_df, aos_date_col = 'collect_date', thre
     group_by(flightdate) %>%
     arrange(flightdate, value) %>%
     dplyr::slice(1) %>%
-    dplyr::mutate(aos_match = dplyr::case_when(name == 'days_before' ~ aos_before,
-                                               name == 'days_after' ~ aos_after)) %>%
+    dplyr::mutate(aos_match = dplyr::case_when(name %in% c('days_before') ~ as.character(aos_before),
+                                               name %in% c('days_after') ~ as.character(aos_after))) %>%
+    dplyr::mutate(aos_match = lubridate::as_date(aos_match)) %>%
     dplyr::select(flightdate, aos_match, min_days) %>%
     dplyr::rename(days = min_days)
   
