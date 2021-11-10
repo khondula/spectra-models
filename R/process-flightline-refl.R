@@ -1,4 +1,4 @@
-# my_flightline <- flightlines[1]
+my_flightline <- flightlines[1]
 
 process_flightline_refl <- function(my_flightline){
   
@@ -39,9 +39,25 @@ process_flightline_refl <- function(my_flightline){
     # select spectra from desired location and interpolate to 1 nm resolution with approx
     loc_in_spectra <- my_loc_type[my_loc_type %in% names(spectra_df)][1]
     my_spectra_df <- spectra_df %>% dplyr::select(all_of(loc_in_spectra), wl, band)
-    my_spectra_df2 <- approx(my_spectra_df$wl, my_spectra_df[[loc_in_spectra]], xout = my_wls) %>%
-      as.data.frame() %>% dplyr::rename(wl = x, rho_approx = y) %>%
-      dplyr::mutate(rho_approx = rho_approx/10000)
+
+    # APPROX USES LINEAR INTERPOLATION
+    # my_spectra_df2 <- approx(my_spectra_df$wl, my_spectra_df[[loc_in_spectra]], xout = my_wls) %>%
+    #   as.data.frame() %>% dplyr::rename(wl = x, rho_approx = y) %>%
+    #   dplyr::mutate(rho_approx = rho_approx/10000)
+
+    # SPLINE INTERPOLATION
+    my_spectra_df2 <- spline(my_spectra_df$wl, my_spectra_df[[loc_in_spectra]], 
+                             xout = my_wls, method = "natural") %>%
+      as.data.frame() %>% dplyr::rename(wl = x, rho_natspline = y) %>%
+      dplyr::mutate(rho_approx = rho_natspline/10000)
+    
+    # my_spectra_df2 %>% 
+    #   left_join(my_spectra_df3) %>% 
+    #   tidyr::pivot_longer(cols = 2:3) %>%
+    #   ggplot(aes(x = wl, y = value)) +
+    #   geom_line(aes(col = name))
+    #   # geom_point(aes(col = name)) +
+    #   # facet_wrap(vars(name))
     
     wv_bands <- c(1260:1560, 1760:1960) # water vapor bands to remove
     
