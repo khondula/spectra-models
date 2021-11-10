@@ -1,0 +1,6 @@
+siteID,namedLocation,flightdate,aos_match,days_diff,analyte,avg,sd,n
+BARC,BARC.AOS.buoy.c0,2016-09-23,2016-10-12,19,UV Absorbance (254 nm),0.0245,NA,1
+BARC,BARC.AOS.buoy.c0,2017-09-27,2017-10-10,13,UV Absorbance (254 nm),0.0619,NA,1
+BARC,BARC.AOS.buoy.c0,2018-09-15,2018-09-05,10,UV Absorbance (254 nm),0.03626666666666667,0.0012055427546683413,3
+BARC,BARC.AOS.buoy.c0,2018-10-12,2018-10-01,11,UV Absorbance (254 nm),0.0345,NA,1
+BARC,BARC.AOS.buoy.c0,2019-04-16,2019-04-11,5,UV Absorbance (254 nm),0.0301,NA,1

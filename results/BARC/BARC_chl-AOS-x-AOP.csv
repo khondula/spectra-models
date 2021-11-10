@@ -1,0 +1,3 @@
+siteID,namedLocation,flightdate,aos_match,days_diff,analyte,avg,sd,n
+BARC,BARC.AOS.buoy.c0,2019-04-16,2019-02-20,55,chlorophyll a,1.23,NA,1
+BARC,BARC.AOS.buoy.c0,2019-04-16,2019-02-20,55,pheophytin,0.97,NA,1

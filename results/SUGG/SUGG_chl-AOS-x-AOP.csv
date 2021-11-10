@@ -1,0 +1,3 @@
+siteID,namedLocation,flightdate,aos_match,days_diff,analyte,avg,sd,n
+SUGG,SUGG.AOS.buoy.c0,2019-04-16,2019-02-18,57,chlorophyll a,1.69,NA,1
+SUGG,SUGG.AOS.buoy.c0,2019-04-16,2019-02-18,57,pheophytin,2.72,NA,1
