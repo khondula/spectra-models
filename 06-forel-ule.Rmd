@@ -1,0 +1,189 @@
+---
+title: "Forel-Ule Index"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(glue)
+```
+
+read in a reflectance spectra and get green reflectance spectra
+
+```{r}
+mysite <- "PRPO"
+Rrs2_df <- glue('results/{mysite}/{mysite}-fl_data_long_green.tsv') %>% 
+  vroom::vroom() %>% dplyr::filter(name %in% 'Rrs2')
+Rrs2_df %>% 
+  ggplot(aes(x = wl, y = value, group = flightline_id)) +
+  geom_line(aes(col = flightline_id)) +
+  facet_wrap(vars(name)) +
+  ggtitle(glue('Green flightlines at {mysite}'))
+flightlines <- unique(Rrs2_df$flightline_id)
+wls <- unique(Rrs2_df$wl)
+```
+
+```{r}
+cie <- readr::read_csv('~/Box/data/CIE1nm.csv', col_names = c('wl', 'x', 'y', 'z')) %>%
+  dplyr::filter(wl %in% 400:800)
+
+cie %>%
+  tidyr::pivot_longer(cols = 2:4) %>%
+  ggplot(aes(x = wl, y = value)) +
+  geom_line(aes(col = name))
+
+cie %>%
+  tidyr::pivot_longer(cols = 2:4) %>%
+  group_by(name) %>% summarise(sum = sum(value))
+
+range(cie$wl)
+length(cie$wl)
+# length(my_wls)
+
+fuLUT <- readr::read_csv('~/Box/data/FU-scale.csv')
+```
+
+are there different FU values for rho vs rrs1 vs rrs2 etc
+
+```{r}
+spectra_df <- Rrs2_df
+# calculate_FU <- function(spectra_df, id_col = 'flightline_id'){
+  check_neg <- any(spectra_df$value < 0)
+  if(check_neg){message(glue('negative values in spectra {spectra_df$flightline_id[1]} corrected to 0'))}
+
+  spectra_df <- spectra_df %>% 
+    dplyr::mutate(value = case_when(value < 0 ~ 0, TRUE ~ value))
+  
+  # calculate X Y Z
+  fx_linear <- approxfun(spectra_df[['wl']], cie[['x']]*spectra_df[['value']])
+  myx_integral <- integrate(fx_linear, lower = 400, upper = 800, subdivisions = 401)
+  my_X = myx_integral$value
+
+  fy_linear <- approxfun(spectra_df$wl, cie[['y']]*spectra_df$value)
+  myy_integral <- integrate(fy_linear, lower = 400, upper = 800, subdivisions = 401)
+  my_Y = myy_integral$value
+
+  fz_linear <- approxfun(spectra_df$wl, cie[['z']]*spectra_df$value)
+  myz_integral <- integrate(fz_linear, lower = 400, upper = 800, subdivisions = 401)
+  my_Z = myz_integral$value
+
+  my_sum = my_X + my_Y + my_Z
+  my_x = my_X/my_sum
+  my_y = my_Y/my_sum
+
+  my_x_prime = my_x - (1/3)
+  my_y_prime = my_y - (1/3)
+
+  # might need to do something for modulo 2 pi here? 
+  # if my_x is negative... 
+  # alpha2 = atan(my_y_prime/my_x_prime)*(180/pi)
+  my_alpha_degrees = base::atan2(my_y_prime, my_x_prime)*(180/pi)
+
+  fuLUT_id <- which.min(abs(my_alpha_degrees-fuLUT$alphaWang))
+  # based on lookup table for FU classes
+  wl_dominant <- fuLUT[['dominant_wl']][fuLUT_id]
+  fu_class <- fuLUT[['Fuclass']][fuLUT_id]
+  
+  return(list(id = spectra_df[[id_col]][1], 
+              alpha = my_alpha_degrees, 
+              fu_class = fu_class, 
+              wl_dominant = wl_dominant))
+# }
+
+```
+
+```{r}
+
+calculate_FU <- function(spectra_df, id_col = 'flightline_id'){
+  check_neg <- any(spectra_df$value < 0)
+  if(check_neg){message(glue('negative values in spectra {spectra_df$flightline_id[1]} corrected to 0'))}
+
+  spectra_df <- spectra_df %>% 
+    dplyr::mutate(value = case_when(value < 0 ~ 0, TRUE ~ value))
+  # calculate X Y Z
+  fx_linear <- approxfun(spectra_df[['wl']], cie[['x']]*spectra_df[['value']])
+  myx_integral <- integrate(fx_linear, lower = 400, upper = 800, subdivisions = 401)
+  my_X = myx_integral$value
+
+  fy_linear <- approxfun(spectra_df$wl, cie[['y']]*spectra_df$value)
+  myy_integral <- integrate(fy_linear, lower = 400, upper = 800, subdivisions = 401)
+  my_Y = myy_integral$value
+
+  fz_linear <- approxfun(spectra_df$wl, cie[['z']]*spectra_df$value)
+  myz_integral <- integrate(fz_linear, lower = 400, upper = 800, subdivisions = 401)
+  my_Z = myz_integral$value
+
+  my_sum = my_X + my_Y + my_Z
+  my_x = my_X/my_sum
+  my_y = my_Y/my_sum
+
+  my_x_prime = my_x - (1/3)
+  my_y_prime = my_y - (1/3)
+
+  # might need to do something for modulo 2 pi here? 
+  # if my_x is negative... 
+  # alpha2 = atan(my_y_prime/my_x_prime)*(180/pi)
+  my_alpha_degrees = base::atan2(my_y_prime, my_x_prime)*(180/pi)
+
+  fuLUT_id <- which.min(abs(my_alpha_degrees-fuLUT$alphaWang))
+  # based on lookup table for FU classes
+  wl_dominant <- fuLUT[['dominant_wl']][fuLUT_id]
+  fu_class <- fuLUT[['Fuclass']][fuLUT_id]
+  
+  return(list(id = spectra_df[[id_col]][1], 
+              hue_angle = my_alpha_degrees, 
+              fu_class = fu_class, 
+              wl_dominant = wl_dominant))
+}
+  
+
+
+
+```
+
+```{r}
+fu_color_scale <- c(FU2 = 'blue', FU3 = 'blue',
+                    FU10 = 'green3', 
+                    FU17 = 'olivedrab', FU18 = 'goldenrod4', FU19 = 'goldenrod4',
+                    FU21 = 'goldenrod4')
+# my_spectra_df <- Rrs2_df %>%
+#   dplyr::filter(flightline_id %in% flightlines[2])
+
+# calculate_FU(my_spectra_df)
+
+spectra_list <- glue('results/{mysite}/{mysite}-fl_data_long_green.tsv') %>% 
+  vroom::vroom() %>% group_by(name) %>% group_split()
+names(spectra_list) <- spectra_list %>% purrr::map_chr(~.x[['name']][1])
+
+names(spectra_list) 
+  # can have multiple spectras in spectras_df
+spectras_df <- spectra_list[[1]]
+get_allflightlines_FUs <- function(spectras_df, flightlines){ 
+  
+  fu_df <- flightlines %>%
+    purrr::map(~dplyr::filter(spectras_df, flightline_id %in% .x)) %>%
+    purrr::map(~calculate_FU(spectra_df = .x)) %>%
+    purrr::map_df(~as.data.frame(.x)) %>%
+    bind_rows()
+
+  return(fu_df)
+}
+
+spectra_list %>% purrr::map(~get_allflightlines_FUs(.x, flightlines))
+
+Rrs2_df %>% 
+  left_join(fu_df, by = c('flightline_id' = 'id')) %>%
+  ggplot(aes(x = wl, y = value, group = flightline_id)) +
+  geom_line(aes(col = fu_class)) +
+  scale_color_manual(values = fu_color_scale) +
+  facet_wrap(vars(flightline_id)) +
+  ggtitle(glue('Green flightlines at {mysite}')) +
+  theme_bw() +
+  theme(legend.position = 'bottom')
+
+```
+
+
+My theta is solar zenith angle
+
