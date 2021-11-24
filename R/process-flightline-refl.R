@@ -78,12 +78,16 @@ process_flightline_refl <- function(my_flightline){
     
     my_theta_rad = (my_theta*pi)/180
     
+    g0 = 0.089
+    g1 = 0.1245
     # MODEL REMOTE SENSING REFLECTANCE AND UNDERWATER
     my_spectra_df3 <- my_spectra_df2 %>%
       dplyr::mutate(Rrs1 = rho_approx/pi) %>%
       dplyr::mutate(Rrs2 = rho_approx * (cos(my_theta_rad)/pi)) %>%
       dplyr::mutate(rrs1 = Rrs1/(0.52 + 1.7*Rrs1)) %>%
       dplyr::mutate(rrs2 = Rrs2/(0.52 + 1.7*Rrs2)) %>%
+      dplyr::mutate(u1 = (-g0 + sqrt((g0^2) + 4*g1 * rrs1))/2*g1) %>%
+      dplyr::mutate(u2 = (-g0 + sqrt((g0^2) + 4*g1 * rrs2))/2*g1) %>%
       dplyr::mutate(my_theta = my_theta,
                     my_clouds = my_clouds, 
                     my_gpstime_hrs = my_gpstime_hrs)
